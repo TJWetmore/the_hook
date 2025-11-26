@@ -2,21 +2,30 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { Calendar, MapPin, Plus } from 'lucide-react';
 import SubmitEventModal from './SubmitEventModal';
+import EventDetailModal from './EventDetailModal';
 
 interface Event {
     id: string;
     event_name: string;
     host_organization: string;
     start_time: string;
+    end_time: string;
     location: string;
     description: string;
     image_url: string;
+    created_by: string;
 }
 
 export default function EventsView() {
     const [events, setEvents] = useState<Event[]>([]);
     const [loading, setLoading] = useState(true);
     const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
+    const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
+    const [user, setUser] = useState<any>(null);
+
+    useEffect(() => {
+        supabase.auth.getUser().then(({ data: { user } }) => setUser(user));
+    }, []);
 
     const fetchEvents = async () => {
         const { data } = await supabase
@@ -54,7 +63,11 @@ export default function EventsView() {
                 {events.map((event) => {
                     const date = new Date(event.start_time);
                     return (
-                        <div key={event.id} className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700 flex gap-6 hover:shadow-md transition-shadow">
+                        <div
+                            key={event.id}
+                            onClick={() => setSelectedEvent(event)}
+                            className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700 flex gap-6 hover:shadow-md transition-all cursor-pointer hover:border-indigo-300"
+                        >
                             {/* Date Box */}
                             <div className="flex-shrink-0 flex flex-col items-center justify-center w-20 h-24 bg-green-50 dark:bg-green-900/20 rounded-lg text-green-700 dark:text-green-400">
                                 <span className="text-xs font-bold uppercase tracking-wider">{date.toLocaleDateString('en-US', { weekday: 'short' })}</span>
@@ -94,6 +107,11 @@ export default function EventsView() {
                 isOpen={isSubmitModalOpen}
                 onClose={() => setIsSubmitModalOpen(false)}
                 onEventCreated={fetchEvents}
+            />
+            <EventDetailModal
+                event={selectedEvent}
+                onClose={() => setSelectedEvent(null)}
+                currentUserId={user?.id}
             />
         </div>
     );

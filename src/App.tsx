@@ -6,6 +6,7 @@ import EventsView from './components/EventsView';
 import PerksView from './components/PerksView';
 import CreatePostModal from './components/CreatePostModal';
 import ReportPackageModal from './components/ReportPackageModal';
+import PackageDetailModal from './components/PackageDetailModal';
 
 // Types
 interface Profile {
@@ -42,11 +43,26 @@ interface PackageReport {
   item_description: string;
   location_found: string;
   status: string;
+  report_type: 'found' | 'lost';
   created_at: string;
+  package_digits?: string;
+  image_url?: string;
+  is_food?: boolean;
+  additional_notes?: string;
+  user_id: string;
+}
+
+interface UserActivity {
+  user_id: string;
+  last_seen_forum: string;
+  last_seen_events: string;
+  last_seen_packages: string;
+  last_seen_perks: string;
+  last_seen_dashboard: string;
 }
 
 function App() {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState('forum');
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -60,7 +76,15 @@ function App() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [posts, setPosts] = useState<ForumPost[]>([]);
   const [packages, setPackages] = useState<PackageReport[]>([]);
+  const [selectedPackage, setSelectedPackage] = useState<PackageReport | null>(null);
+  const [packageSearch, setPackageSearch] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Activity & Badges
+  const [userActivity, setUserActivity] = useState<UserActivity | null>(null);
+  const [unreadForum, setUnreadForum] = useState(0);
+  const [unreadEvents, setUnreadEvents] = useState(0);
+  const [unreadPackages, setUnreadPackages] = useState(0);
 
   // 1. Auth Listener
   useEffect(() => {
@@ -83,6 +107,83 @@ function App() {
     if (data) setProfile(data);
   };
 
+  const fetchUserActivity = async (userId: string) => {
+    const { data, error } = await supabase
+      .from('user_activity')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+
+    if (data) {
+      setUserActivity(data);
+    } else if (error && error.code === 'PGRST116') {
+      // Create if not exists
+      const { data: newData } = await supabase
+        .from('user_activity')
+        .insert({ user_id: userId })
+        .select()
+        .single();
+      if (newData) setUserActivity(newData);
+    }
+  };
+
+  const updateLastSeen = async (tab: string) => {
+    if (!user) return;
+
+    const field = `last_seen_${tab}`;
+    const now = new Date().toISOString();
+
+    // Optimistic update
+    if (userActivity) {
+      setUserActivity({ ...userActivity, [field]: now });
+      if (tab === 'forum') setUnreadForum(0);
+      if (tab === 'events') setUnreadEvents(0);
+      if (tab === 'packages') setUnreadPackages(0);
+    }
+
+    await supabase
+      .from('user_activity')
+      .upsert({ user_id: user.id, [field]: now });
+  };
+
+  // Fetch badges (counts of new items)
+  const fetchBadges = useCallback(async () => {
+    if (!userActivity) return;
+
+    // Forum Badges
+    const { count: forumCount } = await supabase
+      .from('forum_posts')
+      .select('*', { count: 'exact', head: true })
+      .gt('created_at', userActivity.last_seen_forum);
+    setUnreadForum(forumCount || 0);
+
+    // Event Badges
+    const { count: eventCount } = await supabase
+      .from('events')
+      .select('*', { count: 'exact', head: true })
+      .gt('created_at', userActivity.last_seen_events);
+    setUnreadEvents(eventCount || 0);
+
+    // Package Badges
+    const { count: packageCount } = await supabase
+      .from('package_reports')
+      .select('*', { count: 'exact', head: true })
+      .gt('created_at', userActivity.last_seen_packages)
+      .eq('status', 'open'); // Only count open packages
+    setUnreadPackages(packageCount || 0);
+
+  }, [userActivity]);
+
+  useEffect(() => {
+    if (user) {
+      fetchUserActivity(user.id);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    fetchBadges();
+  }, [fetchBadges]);
+
   // 2. Data Fetching based on Tab
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -94,8 +195,16 @@ function App() {
         const { data } = await supabase.from('forum_posts').select('*').order('created_at', { ascending: false });
         if (data) setPosts(data);
       } else if (activeTab === 'packages') {
-        const { data } = await supabase.from('package_reports').select('*').order('created_at', { ascending: false });
-        if (data) setPackages(data);
+        const fourDaysAgo = new Date();
+        fourDaysAgo.setDate(fourDaysAgo.getDate() - 4);
+
+        const { data } = await supabase
+          .from('package_reports')
+          .select('*')
+          .eq('status', 'open')
+          .gt('created_at', fourDaysAgo.toISOString())
+          .order('created_at', { ascending: false });
+        if (data) setPackages(data as any);
       }
       // Events and Perks fetch their own data
     } catch (error) {
@@ -115,7 +224,10 @@ function App() {
 
   const NavItem = ({ id, label, icon: Icon, badge }: { id: string, label: string, icon: any, badge?: number }) => (
     <button
-      onClick={() => setActiveTab(id)}
+      onClick={() => {
+        setActiveTab(id);
+        updateLastSeen(id);
+      }}
       className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium transition-colors ${activeTab === id
         ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400'
         : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
@@ -138,10 +250,7 @@ function App() {
       {/* Sidebar */}
       <aside className="w-64 border-r border-gray-200 dark:border-gray-800 h-screen sticky top-0 hidden md:flex flex-col p-6">
         <div className="flex items-center gap-2 mb-10 px-2">
-          <div className="w-8 h-8 bg-green-700 rounded-lg flex items-center justify-center text-white font-bold">
-            <span className="text-lg">🌲</span>
-            <span className="text-lg">🌲</span>
-          </div>
+          <img src="/favicon.jpg" alt="Logo" className="w-8 h-8 rounded-lg object-cover" />
           <span className="text-xl font-bold tracking-tight text-green-900 dark:text-green-100">The Hook</span>
         </div>
 
@@ -149,9 +258,9 @@ function App() {
           <div>
             <h3 className="px-4 text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Community</h3>
             <div className="space-y-1">
-              <NavItem id="forum" label="Discussion" icon={MessageSquare} />
-              <NavItem id="events" label="Events" icon={Calendar} />
-              <NavItem id="packages" label="Package Watch" icon={Package} badge={packages.length > 0 ? packages.length : undefined} />
+              <NavItem id="forum" label="Discussion" icon={MessageSquare} badge={unreadForum > 0 ? unreadForum : undefined} />
+              <NavItem id="events" label="Events" icon={Calendar} badge={unreadEvents > 0 ? unreadEvents : undefined} />
+              <NavItem id="packages" label="Package Watch" icon={Package} badge={unreadPackages > 0 ? unreadPackages : undefined} />
             </div>
           </div>
 
@@ -169,7 +278,7 @@ function App() {
           {user ? (
             <div className="flex items-center gap-3 px-2">
               <img
-                src={profile?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.email}`}
+                src={profile?.avatar_url || `https://api.dicebear.com/7.x/initials/svg?seed=${user.email}`}
                 alt="Avatar"
                 className="w-10 h-10 rounded-full bg-gray-100"
               />
@@ -337,62 +446,90 @@ function App() {
                       </div>
                       <p className="text-indigo-700 dark:text-indigo-300">Misdelivered package? Post it here to help your neighbors.</p>
                     </div>
-                    <div className="flex gap-3">
-                      <button
-                        onClick={() => {
-                          setReportPackageType('found');
-                          setIsReportPackageOpen(true);
-                        }}
-                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-sm transition-colors"
-                      >
-                        Found a Package
-                      </button>
-                      <button
-                        onClick={() => {
-                          setReportPackageType('missing');
-                          setIsReportPackageOpen(true);
-                        }}
-                        className="px-4 py-2 bg-white text-indigo-600 border border-indigo-200 font-bold rounded-lg text-sm hover:bg-indigo-50 transition-colors"
-                      >
-                        Report Missing
-                      </button>
+                    <button
+                      onClick={() => {
+                        setReportPackageType('found');
+                        setIsReportPackageOpen(true);
+                      }}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-sm transition-colors whitespace-nowrap"
+                    >
+                      Report Package
+                    </button>
+                  </div>
+
+                  {/* Search Bar */}
+                  <div className="mb-6">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} />
+                      <input
+                        type="text"
+                        placeholder="Search last 4 tracking number digits..."
+                        value={packageSearch}
+                        onChange={(e) => setPackageSearch(e.target.value)}
+                        className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
+                        maxLength={4}
+                      />
                     </div>
                   </div>
 
                   <div className="space-y-4">
-                    {packages.map((pkg) => (
-                      <div key={pkg.id} className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 flex items-start justify-between">
-                        <div className="flex gap-4">
-                          <div className={`w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 ${pkg.status === 'found' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
-                            }`}>
-                            <Package size={24} />
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className={`text-xs font-bold uppercase tracking-wider ${pkg.status === 'found' ? 'text-green-600' : 'text-red-600'
-                                }`}>{pkg.status}</span>
-                              <span className="text-gray-400 text-xs">• {new Date(pkg.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>
+                    {packages
+                      .filter(pkg => !packageSearch || pkg.package_digits?.includes(packageSearch))
+                      .map((pkg) => (
+                        <div
+                          key={pkg.id}
+                          onClick={() => setSelectedPackage(pkg)}
+                          className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 flex items-start justify-between cursor-pointer hover:border-indigo-300 transition-colors"
+                        >
+                          <div className="flex gap-4">
+                            {pkg.image_url ? (
+                              <img
+                                src={pkg.image_url}
+                                alt="Package"
+                                className="w-20 h-20 rounded-lg object-cover border border-gray-100"
+                              />
+                            ) : (
+                              <div className={`w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 ${pkg.report_type === 'found' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
+                                }`}>
+                                <Package size={24} />
+                              </div>
+                            )}
+                            <div>
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className={`text-xs font-bold uppercase tracking-wider ${pkg.report_type === 'found' ? 'text-green-600' : 'text-red-600'
+                                  }`}>{pkg.report_type}</span>
+                                <span className="text-gray-400 text-xs">• {new Date(pkg.created_at).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
+                                {pkg.is_food && (
+                                  <span className="px-2 py-0.5 bg-orange-100 text-orange-700 text-xs font-bold rounded-full flex items-center gap-1">
+                                    🍔 Food
+                                  </span>
+                                )}
+                                {pkg.package_digits && (
+                                  <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs font-mono font-bold rounded-md">
+                                    #{pkg.package_digits}
+                                  </span>
+                                )}
+                              </div>
+                              <h3 className="font-bold text-gray-900 dark:text-white">{pkg.item_description}</h3>
+                              <p className="text-sm text-gray-500 mt-1">
+                                {pkg.report_type === 'found' ? `Left in ${pkg.location_found}` : `Last seen at ${pkg.location_found}`}
+                              </p>
                             </div>
-                            <h3 className="font-bold text-gray-900 dark:text-white">{pkg.item_description}</h3>
-                            <p className="text-sm text-gray-500 mt-1">
-                              {pkg.status === 'found' ? `Left in ${pkg.location_found}` : `Last seen at ${pkg.location_found}`}
-                            </p>
                           </div>
+                          {pkg.report_type === 'found' && (
+                            <button className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs font-bold rounded-lg transition-colors">
+                              Claim
+                            </button>
+                          )}
                         </div>
-                        {pkg.status === 'found' && (
-                          <button className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs font-bold rounded-lg transition-colors">
-                            Claim
-                          </button>
-                        )}
-                      </div>
-                    ))}
+                      ))}
                   </div>
                 </div>
               )}
             </div>
           )}
         </div>
-      </main>
+      </main >
 
       <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
       <CreatePostModal
@@ -406,6 +543,12 @@ function App() {
         onReportCreated={fetchData}
         initialStatus={reportPackageType}
       />
+      <PackageDetailModal
+        pkg={selectedPackage}
+        onClose={() => setSelectedPackage(null)}
+        onResolve={fetchData}
+        currentUserId={user?.id}
+      />
 
       {/* Mobile Bottom Nav (Optional, but good for mobile) */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 flex justify-around p-2 z-40">
@@ -414,7 +557,7 @@ function App() {
         <button onClick={() => setActiveTab('packages')} className={`p-2 rounded-lg ${activeTab === 'packages' ? 'text-green-600' : 'text-gray-400'}`}><Package size={24} /></button>
         <button onClick={() => setActiveTab('dashboard')} className={`p-2 rounded-lg ${activeTab === 'dashboard' ? 'text-green-600' : 'text-gray-400'}`}><LayoutGrid size={24} /></button>
       </div>
-    </div>
+    </div >
   );
 }
 

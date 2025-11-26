@@ -47,7 +47,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
                             coop_name: buildingAddress, // Mapping address to coop for now, or use logic
                             building_address: buildingAddress,
                             unit_number: unitNumber,
-                            avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`, // Auto-gen avatar
+                            avatar_url: `https://api.dicebear.com/7.x/initials/svg?seed=${email}`, // Auto-gen avatar
                         },
                     },
                 });

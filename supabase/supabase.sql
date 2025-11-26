@@ -91,13 +91,47 @@ create table public.package_reports (
   status text default 'open', -- 'open', 'resolved'
   created_at timestamp with time zone default now(),
   visibility text default 'public', -- public, private, East River Coop
-  tags text[] -- ['K line, G line, Building 1, Building 2, Building 3']
+  tags text[], -- ['K line, G line, Building 1, Building 2, Building 3']
+  package_digits text, -- Last 4 digits
+  image_url text,
+  is_food boolean default false,
+  additional_notes text
 );
 
--- 9. INDEXES (Performance)
+-- 10. PACKAGE COMMENTS
+create table public.package_comments (
+  id uuid default gen_random_uuid() primary key,
+  package_id uuid references public.package_reports(id) on delete cascade not null,
+  user_id uuid references public.profiles(id) not null,
+  content text not null,
+  created_at timestamp with time zone default now()
+);
+
+-- 12. EVENT COMMENTS
+create table public.event_comments (
+  id uuid default gen_random_uuid() primary key,
+  event_id uuid references public.events(id) on delete cascade not null,
+  user_id uuid references public.profiles(id) not null,
+  content text not null,
+  created_at timestamp with time zone default now()
+);
+
+-- 13. USER ACTIVITY (Unread Badges)
+create table public.user_activity (
+  user_id uuid references public.profiles(id) primary key,
+  last_seen_forum timestamp with time zone default now(),
+  last_seen_events timestamp with time zone default now(),
+  last_seen_packages timestamp with time zone default now(),
+  last_seen_perks timestamp with time zone default now(),
+  last_seen_dashboard timestamp with time zone default now()
+);
+
+-- 14. INDEXES (Performance)
 create index if not exists idx_pledges_user_id on public.pledges(user_id);
 create index if not exists idx_pledges_campaign_id on public.pledges(campaign_id);
 create index if not exists idx_forum_posts_user_id on public.forum_posts(user_id);
 create index if not exists idx_forum_comments_post_id on public.forum_comments(post_id);
 create index if not exists idx_forum_comments_user_id on public.forum_comments(user_id);
 create index if not exists idx_package_reports_user_id on public.package_reports(user_id);
+create index if not exists idx_package_comments_package_id on public.package_comments(package_id);
+create index if not exists idx_event_comments_event_id on public.event_comments(event_id);
