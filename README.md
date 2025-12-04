@@ -1,4 +1,14 @@
-# React + TypeScript + Vite
+# The Hook - Community App
+
+## Setup Instructions
+
+1.  **Environment Variables**:
+    - Make a copy of `.example.env` and rename it to `.env`.
+    - Update the variables with your own Supabase project credentials:
+        - `VITE_SUPABASE_URL`: Your Supabase Project URL.
+        - `VITE_SUPABASE_ANON_KEY`: Your Supabase Anon Key.
+
+## React + TypeScript + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 

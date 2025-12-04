@@ -161,3 +161,97 @@ create policy "Users can view own pledges"
 create policy "Verified residents can pledge"
   on public.pledges for insert
   with check ( public.is_verified_resident() AND auth.uid() = user_id );
+
+-- H. POLLS
+create policy "Authenticated users can view scoped polls"
+  on public.polls for select
+  using ( public.can_view_scoped_content(visibility) );
+
+create policy "Verified residents can create polls"
+  on public.polls for insert
+  with check ( public.is_verified_resident() AND auth.uid() = created_by );
+
+-- I. POLL OPTIONS
+create policy "Authenticated users can view poll options"
+  on public.poll_options for select
+  using ( exists (select 1 from public.polls where id = poll_options.poll_id) );
+
+create policy "Verified residents can create poll options"
+  on public.poll_options for insert
+  with check ( 
+    exists (
+      select 1 from public.polls 
+      where id = poll_options.poll_id 
+      and created_by = auth.uid()
+    ) 
+  );
+
+-- J. POLL VOTES
+create policy "Authenticated users can view votes"
+  on public.poll_votes for select
+  using ( exists (select 1 from public.polls where id = poll_votes.poll_id) );
+
+create policy "Verified residents can vote"
+  on public.poll_votes for insert
+  with check ( 
+    public.is_verified_resident() 
+    AND auth.uid() = user_id 
+    AND exists (
+      select 1 from public.polls 
+      where id = poll_votes.poll_id 
+      and closes_at > now()
+    )
+  );
+
+create policy "Users can change their vote"
+  on public.poll_votes for update
+  using ( auth.uid() = user_id )
+  with check (
+    exists (
+      select 1 from public.polls 
+      where id = poll_votes.poll_id 
+      and closes_at > now()
+    )
+  );
+
+-- K. POLL COMMENTS
+create policy "Authenticated users can view poll comments"
+  on public.poll_comments for select
+  using ( exists (select 1 from public.polls where id = poll_comments.poll_id) );
+
+create policy "Verified residents can comment on polls"
+  on public.poll_comments for insert
+  with check ( 
+    public.is_verified_resident() 
+    AND auth.uid() = user_id 
+    AND exists (
+      select 1 from public.polls 
+      where id = poll_comments.poll_id 
+    )
+  );
+
+-- L. FORUM VOTES
+create policy "Authenticated users can view votes"
+  on public.forum_post_votes for select
+  using ( true );
+
+create policy "Verified residents can vote"
+  on public.forum_post_votes for insert
+  with check ( public.is_verified_resident() AND auth.uid() = user_id );
+
+create policy "Users can remove their own votes"
+  on public.forum_post_votes for delete
+  using ( auth.uid() = user_id );
+
+-- M. FORUM COMMENT VOTES
+create policy "Authenticated users can view comment votes"
+  on public.forum_comment_votes for select
+  using ( true );
+
+create policy "Verified residents can vote on comments"
+  on public.forum_comment_votes for insert
+  with check ( public.is_verified_resident() AND auth.uid() = user_id );
+
+create policy "Users can remove their own comment votes"
+  on public.forum_comment_votes for delete
+  using ( auth.uid() = user_id );
