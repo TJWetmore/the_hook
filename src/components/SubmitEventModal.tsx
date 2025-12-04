@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import { X, Loader2, Calendar } from 'lucide-react';
+import { api } from '../lib/api';
+import { X, Loader2, Calendar, Upload, Image as ImageIcon } from 'lucide-react';
 
 interface SubmitEventModalProps {
     isOpen: boolean;
@@ -15,7 +16,7 @@ export default function SubmitEventModal({ isOpen, onClose, onEventCreated }: Su
     const [endTime, setEndTime] = useState('');
     const [location, setLocation] = useState('');
     const [description, setDescription] = useState('');
-    const [imageUrl, setImageUrl] = useState('');
+    const [imageFile, setImageFile] = useState<File | null>(null);
     const [loading, setLoading] = useState(false);
 
     if (!isOpen) return null;
@@ -28,16 +29,15 @@ export default function SubmitEventModal({ isOpen, onClose, onEventCreated }: Su
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) throw new Error('Not authenticated');
 
-            const { error } = await supabase.from('events').insert({
+            const { error } = await api.createEvent({
                 event_name: eventName,
                 host_organization: hostOrg,
                 start_time: new Date(startTime).toISOString(),
                 end_time: new Date(endTime).toISOString(),
                 location,
                 description,
-                image_url: imageUrl || null,
                 created_by: user.id
-            });
+            }, imageFile);
 
             if (error) throw error;
 
@@ -49,7 +49,7 @@ export default function SubmitEventModal({ isOpen, onClose, onEventCreated }: Su
             setEndTime('');
             setLocation('');
             setDescription('');
-            setImageUrl('');
+            setImageFile(null);
         } catch (error) {
             console.error('Error submitting event:', error);
             alert('Failed to submit event. Please try again.');
@@ -141,14 +141,32 @@ export default function SubmitEventModal({ isOpen, onClose, onEventCreated }: Su
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Image URL (Optional)</label>
-                        <input
-                            type="url"
-                            value={imageUrl}
-                            onChange={(e) => setImageUrl(e.target.value)}
-                            placeholder="https://example.com/image.jpg"
-                            className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all"
-                        />
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Event Image (Optional)</label>
+                        <div className="relative">
+                            <input
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => setImageFile(e.target.files?.[0] || null)}
+                                className="hidden"
+                                id="event-image-upload"
+                            />
+                            <label
+                                htmlFor="event-image-upload"
+                                className="flex items-center justify-center gap-2 w-full px-4 py-2 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg cursor-pointer hover:border-green-500 dark:hover:border-green-400 transition-colors"
+                            >
+                                {imageFile ? (
+                                    <>
+                                        <ImageIcon size={20} className="text-green-500" />
+                                        <span className="text-sm text-gray-600 dark:text-gray-300 truncate">{imageFile.name}</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Upload size={20} className="text-gray-400" />
+                                        <span className="text-sm text-gray-500">Upload Image</span>
+                                    </>
+                                )}
+                            </label>
+                        </div>
                     </div>
 
                     <button
