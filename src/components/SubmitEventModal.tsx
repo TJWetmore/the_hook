@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
+import { api } from '../lib/api';
 import { X, Loader2, Calendar, Upload, Image as ImageIcon } from 'lucide-react';
 
 interface SubmitEventModalProps {
@@ -28,33 +29,15 @@ export default function SubmitEventModal({ isOpen, onClose, onEventCreated }: Su
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) throw new Error('Not authenticated');
 
-            let imageUrl = null;
-            if (imageFile) {
-                const fileExt = imageFile.name.split('.').pop();
-                const fileName = `${Math.random()}.${fileExt}`;
-                const { error: uploadError } = await supabase.storage
-                    .from('event_images')
-                    .upload(fileName, imageFile);
-
-                if (uploadError) throw uploadError;
-
-                const { data: { publicUrl } } = supabase.storage
-                    .from('event_images')
-                    .getPublicUrl(fileName);
-
-                imageUrl = publicUrl;
-            }
-
-            const { error } = await supabase.from('events').insert({
+            const { error } = await api.createEvent({
                 event_name: eventName,
                 host_organization: hostOrg,
                 start_time: new Date(startTime).toISOString(),
                 end_time: new Date(endTime).toISOString(),
                 location,
                 description,
-                image_url: imageUrl,
                 created_by: user.id
-            });
+            }, imageFile);
 
             if (error) throw error;
 

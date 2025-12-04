@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { supabase } from '../lib/supabaseClient';
+import { api } from '../lib/api';
 import { X, Loader2, Package, Upload, Image as ImageIcon } from 'lucide-react';
 
 interface ReportPackageModalProps {
@@ -18,6 +19,26 @@ export default function ReportPackageModal({ isOpen, onClose, onReportCreated, i
     const [isFood, setIsFood] = useState(false);
     const [imageFile, setImageFile] = useState<File | null>(null);
     const [loading, setLoading] = useState(false);
+    const [isDragging, setIsDragging] = useState(false);
+
+    const handleDragOver = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(true);
+    }, []);
+
+    const handleDragLeave = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(false);
+    }, []);
+
+    const handleDrop = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(false);
+        const file = e.dataTransfer.files[0];
+        if (file && file.type.startsWith('image/')) {
+            setImageFile(file);
+        }
+    }, []);
 
     if (!isOpen) return null;
 
@@ -29,24 +50,7 @@ export default function ReportPackageModal({ isOpen, onClose, onReportCreated, i
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) throw new Error('Not authenticated');
 
-            let imageUrl = null;
-            if (imageFile) {
-                const fileExt = imageFile.name.split('.').pop();
-                const fileName = `${Math.random()}.${fileExt}`;
-                const { error: uploadError } = await supabase.storage
-                    .from('package_reports')
-                    .upload(fileName, imageFile);
-
-                if (uploadError) throw uploadError;
-
-                const { data: { publicUrl } } = supabase.storage
-                    .from('package_reports')
-                    .getPublicUrl(fileName);
-
-                imageUrl = publicUrl;
-            }
-
-            const { error } = await supabase.from('package_reports').insert({
+            const { error } = await api.createPackageReport({
                 item_description: description,
                 location_found: location,
                 report_type: status === 'missing' ? 'lost' : 'found',
@@ -54,9 +58,8 @@ export default function ReportPackageModal({ isOpen, onClose, onReportCreated, i
                 user_id: user.id,
                 package_digits: packageDigits,
                 is_food: isFood,
-                image_url: imageUrl,
                 additional_notes: additionalNotes
-            });
+            }, imageFile);
 
             if (error) throw error;
 
@@ -65,6 +68,9 @@ export default function ReportPackageModal({ isOpen, onClose, onReportCreated, i
             setDescription('');
             setLocation('');
             setAdditionalNotes('');
+            setImageFile(null);
+            setPackageDigits('');
+            setIsFood(false);
         } catch (error) {
             console.error('Error reporting package:', error);
             alert('Failed to submit report. Please try again.');
@@ -186,17 +192,27 @@ export default function ReportPackageModal({ isOpen, onClose, onReportCreated, i
                             />
                             <label
                                 htmlFor="image-upload"
-                                className="flex items-center justify-center gap-2 w-full px-4 py-2 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg cursor-pointer hover:border-indigo-500 dark:hover:border-indigo-400 transition-colors"
+                                onDragOver={handleDragOver}
+                                onDragLeave={handleDragLeave}
+                                onDrop={handleDrop}
+                                className={`flex flex-col items-center justify-center gap-2 w-full px-4 py-6 border-2 border-dashed rounded-lg cursor-pointer transition-all ${isDragging
+                                    ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20'
+                                    : 'border-gray-300 dark:border-gray-600 hover:border-indigo-500 dark:hover:border-indigo-400'
+                                    }`}
                             >
                                 {imageFile ? (
                                     <>
-                                        <ImageIcon size={20} className="text-indigo-500" />
-                                        <span className="text-sm text-gray-600 dark:text-gray-300 truncate">{imageFile.name}</span>
+                                        <ImageIcon size={32} className="text-indigo-500" />
+                                        <span className="text-sm font-medium text-gray-900 dark:text-white">{imageFile.name}</span>
+                                        <span className="text-xs text-gray-500">Click or drag to replace</span>
                                     </>
                                 ) : (
                                     <>
-                                        <Upload size={20} className="text-gray-400" />
-                                        <span className="text-sm text-gray-500">Upload Photo</span>
+                                        <Upload size={32} className={isDragging ? 'text-indigo-500' : 'text-gray-400'} />
+                                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                            {isDragging ? 'Drop image here' : 'Click to upload or drag and drop'}
+                                        </span>
+                                        <span className="text-xs text-gray-500">SVG, PNG, JPG or GIF</span>
                                     </>
                                 )}
                             </label>

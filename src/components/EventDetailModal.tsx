@@ -1,29 +1,6 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabaseClient';
+import { api, type Event, type Comment } from '../lib/api';
 import { X, Calendar, MapPin, MessageCircle, Send, CalendarPlus, Download, ExternalLink } from 'lucide-react';
-
-interface Event {
-    id: string;
-    event_name: string;
-    host_organization: string;
-    start_time: string;
-    end_time: string;
-    location: string;
-    description: string;
-    image_url: string;
-    created_by: string;
-}
-
-interface Comment {
-    id: string;
-    content: string;
-    created_at: string;
-    user_id: string;
-    profiles: {
-        user_name: string;
-        avatar_url: string;
-    };
-}
 
 interface EventDetailModalProps {
     event: Event | null;
@@ -45,17 +22,8 @@ export default function EventDetailModal({ event, onClose, currentUserId }: Even
 
     const fetchComments = async () => {
         if (!event) return;
-        const { data, error } = await supabase
-            .from('event_comments')
-            .select(`
-                *,
-                profiles (user_name, avatar_url)
-            `)
-            .eq('event_id', event.id)
-            .order('created_at', { ascending: true });
-
-        if (error) console.error('Error fetching comments:', error);
-        else setComments(data as any || []);
+        const data = await api.fetchEventComments(event.id);
+        if (data) setComments(data);
     };
 
     const handleAddComment = async (e: React.FormEvent) => {
@@ -64,13 +32,7 @@ export default function EventDetailModal({ event, onClose, currentUserId }: Even
 
         setCommentLoading(true);
         try {
-            const { error } = await supabase
-                .from('event_comments')
-                .insert({
-                    event_id: event.id,
-                    user_id: currentUserId,
-                    content: newComment.trim()
-                });
+            const { error } = await api.createEventComment(event.id, currentUserId, newComment.trim());
 
             if (error) throw error;
             setNewComment('');

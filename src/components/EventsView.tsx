@@ -16,9 +16,12 @@ interface Event {
     created_by: string;
 }
 
-export default function EventsView() {
-    const [events, setEvents] = useState<Event[]>([]);
-    const [loading, setLoading] = useState(true);
+interface EventsViewProps {
+    events: Event[];
+    onRefresh: () => void;
+}
+
+export default function EventsView({ events, onRefresh }: EventsViewProps) {
     const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
     const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
     const [user, setUser] = useState<any>(null);
@@ -26,22 +29,6 @@ export default function EventsView() {
     useEffect(() => {
         supabase.auth.getUser().then(({ data: { user } }) => setUser(user));
     }, []);
-
-    const fetchEvents = async () => {
-        const { data } = await supabase
-            .from('events')
-            .select('*')
-            .order('start_time', { ascending: true });
-
-        if (data) setEvents(data);
-        setLoading(false);
-    };
-
-    useEffect(() => {
-        fetchEvents();
-    }, []);
-
-    if (loading) return <div className="p-8 text-center text-gray-500">Loading events...</div>;
 
     return (
         <div className="space-y-6">
@@ -106,7 +93,7 @@ export default function EventsView() {
             <SubmitEventModal
                 isOpen={isSubmitModalOpen}
                 onClose={() => setIsSubmitModalOpen(false)}
-                onEventCreated={fetchEvents}
+                onEventCreated={onRefresh}
             />
             <EventDetailModal
                 event={selectedEvent}

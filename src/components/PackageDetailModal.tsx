@@ -1,31 +1,6 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabaseClient';
-import { X, Package, CheckCircle, Send, MessageCircle } from 'lucide-react';
-
-interface PackageReport {
-    id: string;
-    item_description: string;
-    location_found: string;
-    status: string;
-    report_type: 'found' | 'lost';
-    created_at: string;
-    package_digits?: string;
-    image_url?: string;
-    is_food?: boolean;
-    additional_notes?: string;
-    user_id: string; // Needed to check ownership
-}
-
-interface Comment {
-    id: string;
-    content: string;
-    created_at: string;
-    user_id: string;
-    profiles: {
-        user_name: string;
-        avatar_url: string;
-    };
-}
+import { api, type PackageReport, type Comment } from '../lib/api';
+import { X, Package, CheckCircle, Send, MessageCircle, Share2 } from 'lucide-react';
 
 interface PackageDetailModalProps {
     pkg: PackageReport | null;
@@ -39,6 +14,11 @@ export default function PackageDetailModal({ pkg, onClose, onResolve, currentUse
     const [comments, setComments] = useState<Comment[]>([]);
     const [newComment, setNewComment] = useState('');
     const [commentLoading, setCommentLoading] = useState(false);
+    const [replyTo, setReplyTo] = useState<Comment | null>(null);
+    const [mentionQuery, setMentionQuery] = useState('');
+    const [mentionResults, setMentionResults] = useState<any[]>([]);
+    const [showMentions, setShowMentions] = useState(false);
+    const [cursorPosition, setCursorPosition] = useState(0);
 
     useEffect(() => {
         if (pkg) {
@@ -46,19 +26,52 @@ export default function PackageDetailModal({ pkg, onClose, onResolve, currentUse
         }
     }, [pkg]);
 
+    useEffect(() => {
+        if (mentionQuery) {
+            const search = async () => {
+                const results = await api.searchProfiles(mentionQuery);
+                if (results) setMentionResults(results);
+            };
+            search();
+        } else {
+            setMentionResults([]);
+        }
+    }, [mentionQuery]);
+
     const fetchComments = async () => {
         if (!pkg) return;
-        const { data, error } = await supabase
-            .from('package_comments')
-            .select(`
-                *,
-                profiles (user_name, avatar_url)
-            `)
-            .eq('package_id', pkg.id)
-            .order('created_at', { ascending: true });
+        const data = await api.fetchPackageComments(pkg.id);
+        if (data) setComments(data);
+    };
 
-        if (error) console.error('Error fetching comments:', error);
-        else setComments(data as any || []);
+    const handleCommentChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const value = e.target.value;
+        const pos = e.target.selectionStart || 0;
+        setNewComment(value);
+        setCursorPosition(pos);
+
+        // Check for mention trigger
+        const lastAt = value.lastIndexOf('@', pos - 1);
+        if (lastAt !== -1) {
+            const query = value.slice(lastAt + 1, pos);
+            if (!query.includes(' ')) {
+                setMentionQuery(query);
+                setShowMentions(true);
+                return;
+            }
+        }
+        setShowMentions(false);
+    };
+
+    const insertMention = (userName: string) => {
+        const lastAt = newComment.lastIndexOf('@', cursorPosition - 1);
+        const before = newComment.slice(0, lastAt);
+        const after = newComment.slice(cursorPosition);
+        const newValue = `${before}@${userName} ${after}`;
+        setNewComment(newValue);
+        setShowMentions(false);
+        setMentionQuery('');
+        // Focus back to input would be ideal here
     };
 
     const handleAddComment = async (e: React.FormEvent) => {
@@ -67,16 +80,16 @@ export default function PackageDetailModal({ pkg, onClose, onResolve, currentUse
 
         setCommentLoading(true);
         try {
-            const { error } = await supabase
-                .from('package_comments')
-                .insert({
-                    package_id: pkg.id,
-                    user_id: currentUserId,
-                    content: newComment.trim()
-                });
+            const { error } = await api.createPackageComment(
+                pkg.id,
+                currentUserId,
+                newComment.trim(),
+                replyTo?.id
+            );
 
             if (error) throw error;
             setNewComment('');
+            setReplyTo(null);
             fetchComments();
         } catch (error) {
             console.error('Error adding comment:', error);
@@ -94,10 +107,7 @@ export default function PackageDetailModal({ pkg, onClose, onResolve, currentUse
 
         setLoading(true);
         try {
-            const { error } = await supabase
-                .from('package_reports')
-                .update({ status: 'resolved' })
-                .eq('id', pkg.id);
+            const { error } = await api.resolvePackage(pkg.id);
 
             if (error) throw error;
             onResolve();
@@ -108,6 +118,83 @@ export default function PackageDetailModal({ pkg, onClose, onResolve, currentUse
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleShare = async () => {
+        if (!pkg) return;
+
+        const shareData = {
+            title: `Package Report: ${pkg.item_description}`,
+            text: `Check out this package report: ${pkg.item_description} - ${pkg.report_type === 'found' ? 'Found at' : 'Last seen at'} ${pkg.location_found}`,
+            url: window.location.href // Or specific package URL if routing existed
+        };
+
+        if (navigator.share) {
+            try {
+                await navigator.share(shareData);
+            } catch (err) {
+                console.log('Error sharing:', err);
+            }
+        } else {
+            // Fallback to Facebook Sharer
+            // Since we might be on localhost, the URL might not be reachable by FB, but we can try.
+            // Better fallback for localhost might be just copying text, but user asked for FB.
+            const fbUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.href)}&quote=${encodeURIComponent(shareData.text)}`;
+            window.open(fbUrl, '_blank', 'width=600,height=400');
+        }
+    };
+
+    // Organize comments into threads
+    const rootComments = comments.filter(c => !c.parent_id);
+    const getReplies = (parentId: string) => comments.filter(c => c.parent_id === parentId);
+
+    const CommentItem = ({ comment, depth = 0 }: { comment: Comment, depth?: number }) => {
+        const replies = getReplies(comment.id);
+
+        // Parse content for mentions
+        const renderContent = (content: string) => {
+            const parts = content.split(/(@\w+)/g);
+            return parts.map((part, i) => {
+                if (part.startsWith('@')) {
+                    return <span key={i} className="text-indigo-600 font-bold">{part}</span>;
+                }
+                return part;
+            });
+        };
+
+        return (
+            <div className={`flex flex-col gap-2 ${depth > 0 ? 'ml-8 mt-2' : ''}`}>
+                <div className="flex gap-3">
+                    <img
+                        src={comment.profiles?.avatar_url || `https://api.dicebear.com/7.x/initials/svg?seed=${comment.user_id}`}
+                        alt="Avatar"
+                        className="w-8 h-8 rounded-full bg-gray-100 flex-shrink-0"
+                    />
+                    <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 flex-1 group">
+                        <div className="flex justify-between items-baseline mb-1">
+                            <span className="text-xs font-bold text-gray-900 dark:text-white">
+                                {comment.profiles?.user_name || 'Neighbor'}
+                            </span>
+                            <span className="text-[10px] text-gray-400">
+                                {new Date(comment.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                            </span>
+                        </div>
+                        <p className="text-sm text-gray-700 dark:text-gray-300">{renderContent(comment.content)}</p>
+                        {currentUserId && (
+                            <button
+                                onClick={() => setReplyTo(comment)}
+                                className="text-xs text-indigo-600 font-bold mt-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                                Reply
+                            </button>
+                        )}
+                    </div>
+                </div>
+                {replies.map(reply => (
+                    <CommentItem key={reply.id} comment={reply} depth={depth + 1} />
+                ))}
+            </div>
+        );
     };
 
     return (
@@ -125,9 +212,14 @@ export default function PackageDetailModal({ pkg, onClose, onResolve, currentUse
                             {new Date(pkg.created_at).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
                         </span>
                     </div>
-                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors">
-                        <X size={24} />
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <button onClick={handleShare} className="text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors mr-2" title="Share">
+                            <Share2 size={20} />
+                        </button>
+                        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors">
+                            <X size={24} />
+                        </button>
+                    </div>
                 </div>
 
                 {/* Content */}
@@ -189,46 +281,53 @@ export default function PackageDetailModal({ pkg, onClose, onResolve, currentUse
                             {comments.length === 0 ? (
                                 <p className="text-gray-400 text-sm italic">No comments yet.</p>
                             ) : (
-                                comments.map((comment) => (
-                                    <div key={comment.id} className="flex gap-3">
-                                        <img
-                                            src={comment.profiles?.avatar_url || `https://api.dicebear.com/7.x/initials/svg?seed=${comment.user_id}`}
-                                            alt="Avatar"
-                                            className="w-8 h-8 rounded-full bg-gray-100 flex-shrink-0"
-                                        />
-                                        <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 flex-1">
-                                            <div className="flex justify-between items-baseline mb-1">
-                                                <span className="text-xs font-bold text-gray-900 dark:text-white">
-                                                    {comment.profiles?.user_name || 'Neighbor'}
-                                                </span>
-                                                <span className="text-[10px] text-gray-400">
-                                                    {new Date(comment.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                                                </span>
-                                            </div>
-                                            <p className="text-sm text-gray-700 dark:text-gray-300">{comment.content}</p>
-                                        </div>
-                                    </div>
+                                rootComments.map((comment) => (
+                                    <CommentItem key={comment.id} comment={comment} />
                                 ))
                             )}
                         </div>
 
                         {currentUserId && (
-                            <form onSubmit={handleAddComment} className="flex gap-2">
-                                <input
-                                    type="text"
-                                    value={newComment}
-                                    onChange={(e) => setNewComment(e.target.value)}
-                                    placeholder="Add a comment..."
-                                    className="flex-1 px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                />
-                                <button
-                                    type="submit"
-                                    disabled={commentLoading || !newComment.trim()}
-                                    className="p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    <Send size={18} />
-                                </button>
-                            </form>
+                            <div className="relative">
+                                {replyTo && (
+                                    <div className="flex items-center justify-between bg-indigo-50 dark:bg-indigo-900/20 p-2 rounded-t-lg text-xs text-indigo-700 dark:text-indigo-300 mb-1">
+                                        <span>Replying to <b>{replyTo.profiles?.user_name}</b></span>
+                                        <button onClick={() => setReplyTo(null)}><X size={14} /></button>
+                                    </div>
+                                )}
+
+                                {showMentions && mentionResults.length > 0 && (
+                                    <div className="absolute bottom-full left-0 w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg mb-2 overflow-hidden z-10">
+                                        {mentionResults.map(user => (
+                                            <button
+                                                key={user.id}
+                                                onClick={() => insertMention(user.user_name)}
+                                                className="w-full text-left px-4 py-2 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2"
+                                            >
+                                                <img src={user.avatar_url} className="w-6 h-6 rounded-full" alt="" />
+                                                <span className="text-sm font-medium">{user.user_name}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+
+                                <form onSubmit={handleAddComment} className="flex gap-2">
+                                    <input
+                                        type="text"
+                                        value={newComment}
+                                        onChange={handleCommentChange}
+                                        placeholder={replyTo ? "Write a reply..." : "Add a comment... (@ to mention)"}
+                                        className="flex-1 px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    />
+                                    <button
+                                        type="submit"
+                                        disabled={commentLoading || !newComment.trim()}
+                                        className="p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        <Send size={18} />
+                                    </button>
+                                </form>
+                            </div>
                         )}
                     </div>
 
