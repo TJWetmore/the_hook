@@ -1,15 +1,25 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from './lib/supabaseClient';
-import { api, type Profile, type Campaign, type ForumPost, type PackageReport, type UserActivity, type Poll, type Event } from './lib/api';
-import { LayoutGrid, MessageSquare, Package, Calendar, Tag, LogOut, Search, Plus, User, BarChart2, ThumbsUp, RotateCw } from 'lucide-react';
+import { api, type Profile, type Campaign, type ForumPost, type PackageReport, type UserActivity, type Poll, type Event, type MarketplaceItem } from './lib/api';
+import { formatDate } from './lib/utils';
+import { LayoutGrid, MessageSquare, Package, Calendar, Tag, LogOut, Search, Plus, User, BarChart2, ThumbsUp, RotateCw, ShoppingBag, ShieldAlert, Shield } from 'lucide-react';
 import AuthModal from './components/AuthModal';
 import EventsView from './components/EventsView';
 import PerksView from './components/PerksView';
+import DevSupportView from './components/DevSupportView';
 import CreatePostModal from './components/CreatePostModal';
 import ReportPackageModal from './components/ReportPackageModal';
 import PackageDetailModal from './components/PackageDetailModal';
 import PollsView from './components/PollsView';
 import PostDetailModal from './components/PostDetailModal';
+import MarketplaceView from './components/MarketplaceView';
+import CreateMarketplaceItemModal from './components/CreateMarketplaceItemModal';
+import MarketplaceItemDetailModal from './components/MarketplaceItemDetailModal';
+import LandingPage from './components/LandingPage';
+import VerificationPendingView from './components/VerificationPendingView';
+import Watermark from './components/Watermark';
+import BlockedUserView from './components/BlockedUserView';
+import AdminUserView from './components/AdminUserView';
 
 function App() {
   const [activeTab, setActiveTab] = useState('forum');
@@ -17,20 +27,24 @@ function App() {
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isAuthCheckComplete, setIsAuthCheckComplete] = useState(false);
 
   // Modal States
   const [isCreatePostOpen, setIsCreatePostOpen] = useState(false);
   const [isReportPackageOpen, setIsReportPackageOpen] = useState(false);
+  const [isCreateMarketplaceItemOpen, setIsCreateMarketplaceItemOpen] = useState(false);
   const [reportPackageType, setReportPackageType] = useState<'found' | 'missing'>('found');
 
   // Data States
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [posts, setPosts] = useState<ForumPost[]>([]);
   const [selectedPost, setSelectedPost] = useState<ForumPost | null>(null);
+  const [selectedMarketplaceItem, setSelectedMarketplaceItem] = useState<MarketplaceItem | null>(null);
   const [packages, setPackages] = useState<PackageReport[]>([]);
   const [selectedPackage, setSelectedPackage] = useState<PackageReport | null>(null);
   const [polls, setPolls] = useState<Poll[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
+  const [marketplaceItems, setMarketplaceItems] = useState<MarketplaceItem[]>([]);
   const [packageSearch, setPackageSearch] = useState('');
   const [loading, setLoading] = useState(false);
   const [lastFetched, setLastFetched] = useState<Record<string, number>>({});
@@ -45,7 +59,12 @@ function App() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
-      if (session?.user) fetchProfile(session.user.id);
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        fetchProfile(session.user.id);
+      } else {
+        setIsAuthCheckComplete(true);
+      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -60,8 +79,10 @@ function App() {
   const fetchProfile = async (userId: string) => {
     const data = await api.fetchProfile(userId);
     if (data) setProfile(data);
+    setIsAuthCheckComplete(true);
   };
 
+  // fetches the last time the user was active on each tab
   const fetchUserActivity = async (userId: string) => {
     const data = await api.fetchUserActivity(userId);
     if (data) setUserActivity(data);
@@ -72,7 +93,7 @@ function App() {
 
     // Optimistic update
     const now = new Date().toISOString();
-    const field = `last_seen_${tab}`;
+    const field = `last_seen_${tab} `;
 
     if (userActivity) {
       setUserActivity({ ...userActivity, [field as keyof UserActivity]: now });
@@ -127,6 +148,9 @@ function App() {
       } else if (activeTab === 'events') {
         const { data } = await supabase.from('events').select('*').order('start_time', { ascending: true });
         if (data) setEvents(data);
+      } else if (activeTab === 'marketplace') {
+        const data = await api.fetchMarketplaceItems(true);
+        if (data) setMarketplaceItems(data);
       }
 
       // Update cache timestamp
@@ -151,6 +175,43 @@ function App() {
   useEffect(() => {
     fetchData();
   }, [fetchData, user]);
+
+  const handleMarketplaceLike = async (item: MarketplaceItem) => {
+    if (!user) return;
+
+    // Optimistic update
+    setMarketplaceItems(prev => prev.map(i => {
+      if (i.id === item.id) {
+        return {
+          ...i,
+          like_count: i.is_liked_by_me ? i.like_count - 1 : i.like_count + 1,
+          is_liked_by_me: !i.is_liked_by_me
+        };
+      }
+      return i;
+    }));
+
+    // If the modal is open with this item, update it too reference-wise if needed, 
+    // but since we pass selectedMarketplaceItem from state (which might be stale if we don't update it),
+    // we should ensure selectedMarketplaceItem is also updated or derived from marketplaceItems.
+    // However, for simplicity, let's just update the list. 
+    // If the modal takes the item object directly, we might need to update the selected item state too.
+    if (selectedMarketplaceItem && selectedMarketplaceItem.id === item.id) {
+      setSelectedMarketplaceItem(prev => prev ? ({
+        ...prev,
+        like_count: prev.is_liked_by_me ? prev.like_count - 1 : prev.like_count + 1,
+        is_liked_by_me: !prev.is_liked_by_me
+      }) : null);
+    }
+
+    try {
+      await api.toggleMarketplaceItemLike(item.id, user.id);
+    } catch (error) {
+      console.error('Error toggling like:', error);
+      // Revert on error would be ideal, but keeping it simple for now
+      fetchData(true);
+    }
+  };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -228,7 +289,7 @@ function App() {
       className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium transition-colors ${activeTab === id
         ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400'
         : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
-        }`}
+        } `}
     >
       <div className="flex items-center gap-3">
         <Icon size={20} />
@@ -241,6 +302,49 @@ function App() {
       )}
     </button>
   );
+
+  // Loading State
+  // We also show loading if user is logged in but profile hasn't loaded yet
+  // This prevents the "Flash of Content" where the app renders before we know if they are verified
+  if (!isAuthCheckComplete || (user && !profile)) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
+      </div>
+    );
+  }
+
+  // Not Logged In -> Landing Page
+  if (!user) {
+    return (
+      <>
+        <LandingPage onSignIn={() => setIsAuthModalOpen(true)} />
+        <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
+      </>
+    );
+  }
+
+  // Logged In BUT Not Verified -> Verification Pending
+  // (We assume if profile is null but user exists, we are still fetching or it's a fresh user, 
+  // but for safety we can show pending or a loader if profile is crucial. 
+  // Let's assume fetchProfile logic handles this, but since we set isAuthCheckComplete only after fetchProfile, 
+  // we check profile here.)
+  if (profile && !profile.is_verified) {
+    return <VerificationPendingView
+      onLogout={handleLogout}
+      onRefresh={() => {
+        setProfile(null); // Force loading state to show progress
+        setIsAuthCheckComplete(false); // Reset check to trigger loading UI if desired, or just let setProfile(null) trigger the "user && !profile" loader
+        if (user) fetchProfile(user.id);
+      }}
+      userName={profile.user_name}
+    />;
+  }
+
+  // Blocked User -> Blocked View
+  if (profile && profile.role === 'blocked') {
+    return <BlockedUserView />;
+  }
 
   return (
     <div className="min-h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-sans flex">
@@ -265,10 +369,27 @@ function App() {
           <div>
             <h3 className="px-4 text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Deals</h3>
             <div className="space-y-1">
-              <NavItem id="dashboard" label="Bulk Buys" icon={LayoutGrid} />
+              {/* <NavItem id="dashboard" label="Bulk Buys" icon={LayoutGrid} /> */}
+              <NavItem id="marketplace" label="Marketplace" icon={ShoppingBag} />
               <NavItem id="perks" label="Local Perks" icon={Tag} />
             </div>
           </div>
+
+          <div>
+            <h3 className="px-4 text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Support</h3>
+            <div className="space-y-1">
+              <NavItem id="dev-support" label="Dev Support" icon={RotateCw} />
+            </div>
+          </div>
+
+          {profile?.role === 'admin' && (
+            <div>
+              <h3 className="px-4 text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Admin</h3>
+              <div className="space-y-1">
+                <NavItem id="admin" label="Users" icon={Shield} />
+              </div>
+            </div>
+          )}
         </nav>
 
         {/* User Profile in Sidebar */}
@@ -287,7 +408,7 @@ function App() {
               <button onClick={handleLogout} className="text-gray-400 hover:text-gray-600">
                 <LogOut size={18} />
               </button>
-            </div>
+            </div >
           ) : (
             <button
               onClick={() => setIsAuthModalOpen(true)}
@@ -295,23 +416,37 @@ function App() {
             >
               Sign In
             </button>
-          )}
-        </div>
-      </aside>
+          )
+          }
+        </div >
+      </aside >
 
       {/* Mobile Header (Visible only on small screens) */}
-      <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 z-40 flex items-center justify-between px-4">
+      < div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 z-40 flex items-center justify-between px-4" >
         <div className="flex items-center gap-2">
           <span className="text-xl font-bold text-green-900 dark:text-green-100">The Hook</span>
         </div>
         <button onClick={() => setIsAuthModalOpen(true)} className="p-2">
           <User size={24} />
         </button>
-      </div>
+      </div >
 
       {/* Main Content */}
-      <main className="flex-1 p-8 md:p-12 overflow-y-auto mt-16 md:mt-0">
-        <div className="max-w-4xl mx-auto">
+      < main className="flex-1 p-8 md:p-12 overflow-y-auto mt-16 md:mt-0" >
+        <div className="max-w-4xl mx-auto min-h-full flex flex-col">
+          {/* Limited User Banner */}
+          {profile?.role === 'limited' && (
+            <div className="mb-6 p-4 bg-orange-50 border border-orange-200 rounded-lg flex items-center gap-3 text-orange-800">
+              <div className="p-2 bg-orange-100 rounded-full">
+                <ShieldAlert size={20} className="text-orange-600" />
+              </div>
+              <div>
+                <p className="font-bold text-sm">Account Limited</p>
+                <p className="text-sm">Your account is currently limited - you can view posts but cannot comment or create posts. You can still report missing packages.</p>
+              </div>
+            </div>
+          )}
+
           {/* Search Bar (Mock) */}
           <div className="mb-8 flex justify-end gap-2">
             <div className="relative w-full max-w-xs">
@@ -332,15 +467,27 @@ function App() {
           </div>
 
           {loading ? (
-            <div className="flex justify-center py-12">
+            <div className="flex justify-center py-12 flex-1">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
             </div>
           ) : (
-            <div className="space-y-6">
+            <div className="space-y-6 flex-1">
               {/* VIEWS */}
-              {activeTab === 'events' && <EventsView events={events} onRefresh={() => fetchData(true)} />}
+              {activeTab === 'events' && <EventsView events={events} onRefresh={() => fetchData(true)} canInteract={profile?.role !== 'limited'} />}
               {activeTab === 'perks' && <PerksView />}
-              {activeTab === 'polls' && <PollsView polls={polls} onRefresh={() => fetchData(true)} onVote={handleVote} />}
+              {activeTab === 'polls' && <PollsView polls={polls} onRefresh={() => fetchData(true)} onVote={handleVote} canInteract={profile?.role !== 'limited'} />}
+              {activeTab === 'marketplace' &&
+                <MarketplaceView
+                  user={user}
+                  items={marketplaceItems}
+                  onOpenCreate={() => setIsCreateMarketplaceItemOpen(true)}
+                  canCreate={profile?.role !== 'limited'}
+                  onItemClick={(item) => setSelectedMarketplaceItem(item)}
+                  onLikeToggle={handleMarketplaceLike}
+                />
+              }
+              {activeTab === 'dev-support' && <DevSupportView user={user} canInteract={profile?.role !== 'limited'} />}
+              {activeTab === 'admin' && profile?.role === 'admin' && <AdminUserView />}
 
               {activeTab === 'dashboard' && (
                 <div>
@@ -394,7 +541,7 @@ function App() {
                       <p className="text-gray-500">Ask neighbors, recommend vendors, or vent (politely).</p>
                     </div>
                     <div className="flex items-center gap-2">
-                      {user && (
+                      {user && profile?.role !== 'limited' && (
                         <button
                           onClick={() => setIsCreatePostOpen(true)}
                           className="flex items-center gap-2 px-4 py-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-lg font-medium hover:opacity-90 transition-opacity text-sm"
@@ -444,7 +591,7 @@ function App() {
                               }`}>
                               {post.category}
                             </span>
-                            <span className="text-xs text-gray-400">• {new Date(post.created_at).toLocaleDateString()}</span>
+                            <span className="text-xs text-gray-400">• {formatDate(post.created_at)}</span>
                           </div>
                           <h3 className="font-bold text-lg mb-2 text-gray-900 dark:text-white">{post.post_name}</h3>
                           <p className="text-gray-600 dark:text-gray-300 text-sm leading-relaxed line-clamp-2">{post.content}</p>
@@ -475,15 +622,17 @@ function App() {
                       </div>
                       <p className="text-indigo-700 dark:text-indigo-300">Misdelivered package? Post it here to help your neighbors.</p>
                     </div>
-                    <button
-                      onClick={() => {
-                        setReportPackageType('found');
-                        setIsReportPackageOpen(true);
-                      }}
-                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-sm transition-colors whitespace-nowrap"
-                    >
-                      Report Package
-                    </button>
+                    {user && (
+                      <button
+                        onClick={() => {
+                          setReportPackageType('found');
+                          setIsReportPackageOpen(true);
+                        }}
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-sm transition-colors whitespace-nowrap"
+                      >
+                        Report Package
+                      </button>
+                    )}
                   </div>
 
                   {/* Search Bar */}
@@ -557,6 +706,13 @@ function App() {
               )}
             </div>
           )}
+
+
+          <footer className="mt-auto border-t border-gray-100 dark:border-gray-800 pt-8 pb-4 text-center">
+            <p className="text-xs text-gray-400 dark:text-gray-500">
+              © 2025 The Hook. All rights reserved. The Hook is an independent community project. Not affiliated with East River Housing Corporation.
+            </p>
+          </footer>
         </div>
       </main >
 
@@ -577,11 +733,41 @@ function App() {
         onClose={() => setSelectedPackage(null)}
         onResolve={() => fetchData(true)}
         currentUserId={user?.id}
+        canComment={profile?.role !== 'limited'}
       />
       <PostDetailModal
         post={selectedPost}
         onClose={() => setSelectedPost(null)}
         currentUserId={user?.id}
+        canComment={profile?.role !== 'limited'}
+      />
+      <CreateMarketplaceItemModal
+        isOpen={isCreateMarketplaceItemOpen}
+        onClose={() => setIsCreateMarketplaceItemOpen(false)}
+        onItemCreated={() => fetchData(true)}
+      />
+
+      <MarketplaceItemDetailModal
+        item={selectedMarketplaceItem}
+        onClose={() => setSelectedMarketplaceItem(null)}
+        onLikeToggle={() => selectedMarketplaceItem && handleMarketplaceLike(selectedMarketplaceItem)}
+        onView={() => {
+          if (selectedMarketplaceItem) {
+            setMarketplaceItems(prev => prev.map(i =>
+              i.id === selectedMarketplaceItem.id
+                ? { ...i, view_count: i.view_count + 1 }
+                : i
+            ));
+          }
+        }}
+        currentUserId={user?.id}
+        onStatusUpdate={(status) => {
+          if (selectedMarketplaceItem) {
+            setMarketplaceItems(prev => prev.map(i => i.id === selectedMarketplaceItem.id ? { ...i, status } : i));
+            setSelectedMarketplaceItem(null);
+          }
+        }}
+        canComment={profile?.role !== 'limited'}
       />
 
       {/* Mobile Bottom Nav (Optional, but good for mobile) */}
@@ -592,6 +778,8 @@ function App() {
         <button onClick={() => setActiveTab('packages')} className={`p-2 rounded-lg ${activeTab === 'packages' ? 'text-green-600' : 'text-gray-400'}`}><Package size={24} /></button>
         <button onClick={() => setActiveTab('dashboard')} className={`p-2 rounded-lg ${activeTab === 'dashboard' ? 'text-green-600' : 'text-gray-400'}`}><LayoutGrid size={24} /></button>
       </div>
+
+      {user && <Watermark text={user.id} />}
     </div >
   );
 }

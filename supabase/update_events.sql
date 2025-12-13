@@ -24,9 +24,19 @@ on conflict (id) do nothing;
 -- 5. POLICIES
 
 -- Events
-create policy "Verified residents can create events"
-  on public.events for insert
-  with check ( public.is_verified_resident() AND auth.uid() = created_by );
+-- Events
+-- Allow insert only for admin/full roles (not limited)
+DROP POLICY IF EXISTS "Verified residents can create events" ON public.events;
+CREATE POLICY "Verified residents can create events"
+  ON public.events FOR INSERT
+  WITH CHECK (
+    created_by = auth.uid() AND 
+    EXISTS (
+        SELECT 1 FROM public.profiles
+        WHERE id = auth.uid()
+        AND role IN ('admin', 'full')
+    )
+  );
 
 create policy "Users can update own events"
   on public.events for update

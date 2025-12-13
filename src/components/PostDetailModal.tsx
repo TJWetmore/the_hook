@@ -1,14 +1,16 @@
 import { useState, useEffect } from 'react';
 import { api, type ForumPost, type Comment } from '../lib/api';
+import { formatDate } from '../lib/utils';
 import { X, MessageSquare, Send, ThumbsUp, Trash2 } from 'lucide-react';
 
 interface PostDetailModalProps {
     post: ForumPost | null;
     onClose: () => void;
     currentUserId?: string;
+    canComment?: boolean;
 }
 
-export default function PostDetailModal({ post, onClose, currentUserId }: PostDetailModalProps) {
+export default function PostDetailModal({ post, onClose, currentUserId, canComment = true }: PostDetailModalProps) {
     const [comments, setComments] = useState<Comment[]>([]);
     const [localPost, setLocalPost] = useState<ForumPost | null>(post);
     const [newComment, setNewComment] = useState('');
@@ -265,7 +267,7 @@ export default function PostDetailModal({ post, onClose, currentUserId }: PostDe
                                 }`}>
                                 {localPost.category}
                             </span>
-                            <span className="text-xs text-gray-400">• {new Date(localPost.created_at).toLocaleDateString()}</span>
+                            <span className="text-xs text-gray-400">• {formatDate(localPost.created_at)}</span>
                         </div>
                         <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-1">
                             {localPost.post_name}
@@ -324,7 +326,7 @@ export default function PostDetailModal({ post, onClose, currentUserId }: PostDe
                 </div>
 
                 {/* Footer Input */}
-                {currentUserId && (
+                {currentUserId && canComment && (
                     <div className="p-4 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
                         <div className="relative">
                             {replyTo && (

@@ -6,9 +6,10 @@ interface PollDetailModalProps {
     pollId: string | null;
     onClose: () => void;
     currentUserId?: string;
+    canComment?: boolean;
 }
 
-export default function PollDetailModal({ pollId, onClose, currentUserId }: PollDetailModalProps) {
+export default function PollDetailModal({ pollId, onClose, currentUserId, canComment = true }: PollDetailModalProps) {
     const [poll, setPoll] = useState<Poll | null>(null);
     const [comments, setComments] = useState<Comment[]>([]);
     const [newComment, setNewComment] = useState('');
@@ -249,7 +250,7 @@ export default function PollDetailModal({ pollId, onClose, currentUserId }: Poll
                                     )}
                                 </div>
 
-                                {currentUserId && (
+                                {currentUserId && canComment && (
                                     <div className="relative">
                                         {replyTo && (
                                             <div className="flex items-center justify-between bg-indigo-50 dark:bg-indigo-900/20 p-2 rounded-t-lg text-xs text-indigo-700 dark:text-indigo-300 mb-1">

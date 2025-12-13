@@ -208,3 +208,115 @@ create index if not exists idx_forum_comments_parent_id on public.forum_comments
 create index if not exists idx_package_comments_parent_id on public.package_comments(parent_id);
 create index if not exists idx_forum_posts_deleted_at on public.forum_posts(deleted_at);
 create index if not exists idx_forum_comments_deleted_at on public.forum_comments(deleted_at);
+
+-- ==========================================
+-- 7. MARKETPLACE
+-- ==========================================
+create table if not exists public.marketplace_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+    item_name TEXT NOT NULL,
+    description TEXT,
+    location TEXT, -- Optional
+    price DECIMAL(10, 2),
+    is_negotiable BOOLEAN DEFAULT false,
+    give_away_by TIMESTAMP WITH TIME ZONE,
+    status TEXT DEFAULT 'available' CHECK (status IN ('available', 'sold', 'given_away')),
+    image_url TEXT,
+    condition TEXT,
+    contact_email TEXT,
+    view_count INTEGER DEFAULT 0
+);
+
+create table if not exists public.marketplace_likes (
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    item_id UUID REFERENCES public.marketplace_items(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    PRIMARY KEY (user_id, item_id)
+);
+
+create table if not exists public.marketplace_comments (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    item_id UUID REFERENCES public.marketplace_items(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    parent_id UUID REFERENCES public.marketplace_comments(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    upvotes INTEGER DEFAULT 0,
+    is_useful BOOLEAN DEFAULT false,
+    deleted_at TIMESTAMP WITH TIME ZONE
+);
+
+create table if not exists public.marketplace_comment_votes (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    comment_id UUID REFERENCES public.marketplace_comments(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    UNIQUE(comment_id, user_id)
+);
+
+-- Marketplace Indexes
+create index if not exists idx_marketplace_give_away_by on public.marketplace_items(give_away_by);
+create index if not exists idx_marketplace_comments_item_id on public.marketplace_comments(item_id);
+
+-- ==========================================
+-- 8. DEV SUPPORT
+-- ==========================================
+create table if not exists public.dev_support_tickets (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    type TEXT NOT NULL CHECK (type IN ('bug', 'feature')),
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    priority TEXT NOT NULL CHECK (priority IN ('low', 'medium', 'high', 'critical')),
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'in_progress', 'resolved', 'closed')),
+    user_id UUID REFERENCES auth.users(id) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    upvotes INTEGER DEFAULT 0,
+    view_count INTEGER DEFAULT 0
+);
+
+create table if not exists public.dev_support_comments (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    ticket_id UUID REFERENCES public.dev_support_tickets(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES public.profiles(id),
+    content TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+create table if not exists public.dev_support_ticket_votes (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    ticket_id UUID REFERENCES public.dev_support_tickets(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    UNIQUE(ticket_id, user_id)
+);
+
+create table if not exists public.dev_support_ticket_views (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    ticket_id UUID REFERENCES public.dev_support_tickets(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    UNIQUE(ticket_id, user_id)
+);
+
+-- ==========================================
+-- 9. SCHEMA UPDATES (Roles etc)
+-- ==========================================
+-- User Roles
+DO $$ BEGIN
+    CREATE TYPE public.user_role AS ENUM ('admin', 'full', 'limited', 'blocked');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+ALTER TABLE public.profiles 
+ADD COLUMN IF NOT EXISTS role public.user_role NOT NULL DEFAULT 'full';
+
+-- Optimization Indexes
+create index if not exists idx_events_start_time on public.events(start_time);
+create index if not exists idx_polls_closes_at on public.polls(closes_at);
+create index if not exists idx_forum_posts_created_at on public.forum_posts(created_at DESC);

@@ -1,14 +1,16 @@
 import { useState, useEffect } from 'react';
 import { api, type Event, type Comment } from '../lib/api';
+import { formatDate } from '../lib/utils';
 import { X, Calendar, MapPin, MessageCircle, Send, CalendarPlus, Download, ExternalLink } from 'lucide-react';
 
 interface EventDetailModalProps {
     event: Event | null;
     onClose: () => void;
     currentUserId?: string;
+    canComment?: boolean;
 }
 
-export default function EventDetailModal({ event, onClose, currentUserId }: EventDetailModalProps) {
+export default function EventDetailModal({ event, onClose, currentUserId, canComment = true }: EventDetailModalProps) {
     const [comments, setComments] = useState<Comment[]>([]);
     const [newComment, setNewComment] = useState('');
     const [commentLoading, setCommentLoading] = useState(false);
@@ -140,7 +142,7 @@ END:VCALENDAR`;
                         <div className="flex items-center gap-1">
                             <Calendar size={16} />
                             <span>
-                                {startDate.toLocaleDateString()} • {startDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} - {endDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                                {formatDate(event.start_time)} • {startDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} - {endDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                             </span>
                         </div>
                         <div className="flex items-center gap-1">
@@ -197,7 +199,7 @@ END:VCALENDAR`;
                             )}
                         </div>
 
-                        {currentUserId && (
+                        {currentUserId && canComment && (
                             <form onSubmit={handleAddComment} className="flex gap-2">
                                 <input
                                     type="text"

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { type Poll } from '../lib/api';
+import { formatDate } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
 import { Plus, BarChart2, Clock, CheckCircle2, AlertCircle } from 'lucide-react';
 import CreatePollModal from './CreatePollModal';
@@ -9,9 +10,10 @@ interface PollsViewProps {
     polls: Poll[];
     onRefresh: () => void;
     onVote: (pollId: string, optionId: string) => Promise<void>;
+    canInteract?: boolean;
 }
 
-export default function PollsView({ polls, onRefresh, onVote }: PollsViewProps) {
+export default function PollsView({ polls, onRefresh, onVote, canInteract = true }: PollsViewProps) {
     const [activeTab, setActiveTab] = useState<'active' | 'past'>('active');
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [selectedPollId, setSelectedPollId] = useState<string | null>(null);
@@ -40,7 +42,7 @@ export default function PollsView({ polls, onRefresh, onVote }: PollsViewProps) 
                     <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Community Polls</h2>
                     <p className="text-gray-500">Vote on community decisions and see what your neighbors think.</p>
                 </div>
-                {user && (
+                {user && canInteract && (
                     <button
                         onClick={() => setIsCreateModalOpen(true)}
                         className="flex items-center gap-2 px-4 py-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-lg font-medium hover:opacity-90 transition-opacity text-sm"
@@ -102,9 +104,9 @@ export default function PollsView({ polls, onRefresh, onVote }: PollsViewProps) 
                             <div className="flex items-center gap-2 text-xs font-medium text-gray-400 bg-gray-50 dark:bg-gray-700 px-3 py-1 rounded-full">
                                 <Clock size={14} />
                                 {activeTab === 'active' ? (
-                                    <span>Closes {new Date(poll.closes_at).toLocaleDateString('en-US')}</span>
+                                    <span>Closes {formatDate(poll.closes_at)}</span>
                                 ) : (
-                                    <span>Closed {new Date(poll.closes_at).toLocaleDateString('en-US')}</span>
+                                    <span>Closed {formatDate(poll.closes_at)}</span>
                                 )}
                             </div>
                         </div>
@@ -118,11 +120,11 @@ export default function PollsView({ polls, onRefresh, onVote }: PollsViewProps) 
                                 return (
                                     <button
                                         key={option.id}
-                                        onClick={() => activeTab === 'active' && handleVoteClick(poll.id, option.id)}
-                                        disabled={activeTab === 'past' || !user}
+                                        onClick={() => activeTab === 'active' && canInteract && handleVoteClick(poll.id, option.id)}
+                                        disabled={activeTab === 'past' || !user || !canInteract}
                                         className={`w-full relative group overflow-hidden rounded-lg border-2 transition-all ${isSelected
                                             ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-900/20'
-                                            : 'border-gray-100 dark:border-gray-700 hover:border-indigo-200 dark:hover:border-indigo-800 bg-white dark:bg-gray-800'
+                                            : canInteract ? 'border-gray-100 dark:border-gray-700 hover:border-indigo-200 dark:hover:border-indigo-800 bg-white dark:bg-gray-800' : 'border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 opacity-70 cursor-not-allowed'
                                             }`}
                                     >
                                         {/* Progress Bar Background */}
@@ -189,6 +191,7 @@ export default function PollsView({ polls, onRefresh, onVote }: PollsViewProps) 
                     pollId={selectedPollId}
                     onClose={() => setSelectedPollId(null)}
                     currentUserId={user?.id}
+                    canComment={canInteract}
                 />
             )}
         </div>
