@@ -19,9 +19,10 @@ interface Event {
 interface EventsViewProps {
     events: Event[];
     onRefresh: () => void;
+    canInteract?: boolean;
 }
 
-export default function EventsView({ events, onRefresh }: EventsViewProps) {
+export default function EventsView({ events, onRefresh, canInteract = true }: EventsViewProps) {
     const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
     const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
     const [user, setUser] = useState<any>(null);
@@ -37,13 +38,16 @@ export default function EventsView({ events, onRefresh }: EventsViewProps) {
                     <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Events</h2>
                     <p className="text-gray-500 dark:text-gray-400">What's happening in the Hook.</p>
                 </div>
-                <button
-                    onClick={() => setIsSubmitModalOpen(true)}
-                    className="flex items-center gap-2 px-4 py-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-lg font-medium hover:opacity-90 transition-opacity"
-                >
-                    <Plus size={18} />
-                    <span>Submit Event</span>
-                </button>
+
+                {canInteract && (
+                    <button
+                        onClick={() => setIsSubmitModalOpen(true)}
+                        className="flex items-center gap-2 px-4 py-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-lg font-medium hover:opacity-90 transition-opacity"
+                    >
+                        <Plus size={18} />
+                        <span>Submit Event</span>
+                    </button>
+                )}
             </div>
 
             <div className="space-y-4">
@@ -99,7 +103,8 @@ export default function EventsView({ events, onRefresh }: EventsViewProps) {
                 event={selectedEvent}
                 onClose={() => setSelectedEvent(null)}
                 currentUserId={user?.id}
+                canComment={canInteract}
             />
-        </div>
+        </div >
     );
 }

@@ -9,6 +9,8 @@ alter table public.forum_comments enable row level security;
 alter table public.perks enable row level security;
 alter table public.events enable row level security;
 alter table public.package_reports enable row level security;
+alter table public.package_comments enable row level security;
+alter table public.event_comments enable row level security;
 
 -- ==========================================
 -- STEP 2: HELPER FUNCTIONS
@@ -16,7 +18,11 @@ alter table public.package_reports enable row level security;
 
 -- A. Gatekeeper: Checks if user is verified
 create or replace function public.is_verified_resident()
-returns boolean as $$
+returns boolean 
+language plpgsql 
+security definer
+set search_path = public
+as $$
 begin
   return exists (
     select 1 from public.profiles
@@ -24,12 +30,16 @@ begin
     and is_verified = true
   );
 end;
-$$ language plpgsql security definer;
+$$;
 
 -- B. Scope Checker: Checks if the row's visibility matches user's coop
 -- Usage: select public.can_view_scoped_content(visibility_column)
 create or replace function public.can_view_scoped_content(content_visibility text)
-returns boolean as $$
+returns boolean 
+language plpgsql 
+security definer
+set search_path = public
+as $$
 begin
   -- 1. If public, everyone can see
   if content_visibility = 'public' then
@@ -43,7 +53,7 @@ begin
     and coop_name = content_visibility
   );
 end;
-$$ language plpgsql security definer;
+$$;
 
 -- ==========================================
 -- STEP 3: DEFINE POLICIES
@@ -58,7 +68,11 @@ create policy "Users can update own profile"
 
 -- Prevent users from updating sensitive fields (is_verified, coop_name)
 create or replace function public.prevent_sensitive_updates()
-returns trigger as $$
+returns trigger 
+language plpgsql 
+security definer
+set search_path = public
+as $$
 begin
   -- If the user is NOT a service role (i.e. is a regular authenticated user)
   -- AND they are trying to change restricted columns
@@ -72,7 +86,7 @@ begin
   end if;
   return new;
 end;
-$$ language plpgsql security definer;
+$$;
 
 drop trigger if exists on_profile_update on public.profiles;
 create trigger on_profile_update
@@ -255,3 +269,126 @@ create policy "Verified residents can vote on comments"
 create policy "Users can remove their own comment votes"
   on public.forum_comment_votes for delete
   using ( auth.uid() = user_id );
+
+-- ==========================================
+-- 7. MARKETPLACE POLICIES
+-- ==========================================
+alter table public.marketplace_items enable row level security;
+alter table public.marketplace_likes enable row level security;
+alter table public.marketplace_comments enable row level security;
+alter table public.marketplace_comment_votes enable row level security;
+
+-- Items
+create policy "Marketplace items are viewable by everyone"
+    on public.marketplace_items for select using (true);
+
+create policy "Users can insert their own marketplace items"
+    on public.marketplace_items for insert with check (auth.uid() = user_id);
+
+create policy "Users can update their own marketplace items"
+    on public.marketplace_items for update using (auth.uid() = user_id);
+
+create policy "Users can delete their own marketplace items"
+    on public.marketplace_items for delete using (auth.uid() = user_id);
+
+-- Likes
+create policy "Likes are viewable by everyone"
+    on public.marketplace_likes for select using (true);
+
+create policy "Authenticated users can toggle likes"
+    on public.marketplace_likes for insert with check (auth.uid() = user_id);
+
+create policy "Users can remove their own likes"
+    on public.marketplace_likes for delete using (auth.uid() = user_id);
+
+-- Comments
+create policy "Marketplace comments are viewable by everyone"
+    on public.marketplace_comments for select using (true);
+
+create policy "Authenticated users can create marketplace comments"
+    on public.marketplace_comments for insert with check (auth.uid() = user_id);
+
+create policy "Users can update their own marketplace comments"
+    on public.marketplace_comments for update using (auth.uid() = user_id);
+
+create policy "Users can delete their own marketplace comments"
+    on public.marketplace_comments for delete using (auth.uid() = user_id);
+
+-- Comment Votes
+create policy "Marketplace comment votes are viewable by everyone"
+    on public.marketplace_comment_votes for select using (true);
+
+create policy "Authenticated users can vote on marketplace comments"
+    on public.marketplace_comment_votes for insert with check (auth.uid() = user_id);
+
+create policy "Users can remove their own marketplace comment votes"
+    on public.marketplace_comment_votes for delete using (auth.uid() = user_id);
+
+-- Storage
+insert into storage.buckets (id, name, public) values ('marketplace_images', 'marketplace_images', true) on conflict (id) do nothing;
+
+create policy "Marketplace images are publicly accessible"
+    on storage.objects for select using (bucket_id = 'marketplace_images');
+
+create policy "Authenticated users can upload marketplace images"
+    on storage.objects for insert with check (bucket_id = 'marketplace_images' and auth.role() = 'authenticated');
+
+-- ==========================================
+-- 8. DEV SUPPORT POLICIES
+-- ==========================================
+alter table public.dev_support_tickets enable row level security;
+alter table public.dev_support_comments enable row level security;
+alter table public.dev_support_ticket_votes enable row level security;
+alter table public.dev_support_ticket_views enable row level security;
+
+-- Tickets
+create policy "Tickets are viewable by everyone"
+    on public.dev_support_tickets for select using (true);
+
+create policy "Authenticated users can create tickets"
+    on public.dev_support_tickets for insert with check (auth.uid() = user_id);
+
+create policy "Users can update their own tickets"
+    on public.dev_support_tickets for update using (auth.uid() = user_id);
+
+-- Interactions (Comments, Votes, Views)
+create policy "Dev support interactions viewable by everyone"
+    on public.dev_support_comments for select using (true);
+
+create policy "Authenticated users can comment on tickets"
+    on public.dev_support_comments for insert with check (auth.uid() = user_id);
+
+create policy "Authenticated users can vote on tickets"
+    on public.dev_support_ticket_votes for insert with check (auth.uid() = user_id);
+
+create policy "Authenticated users can view tickets"
+    on public.dev_support_ticket_views for insert with check (auth.uid() = user_id);
+
+-- ==========================================
+-- 9. ADMIN & SECURITY POLICIES
+-- ==========================================
+
+-- Refined Permissions (Limited Users)
+-- Allow 'limited' users to INSERT into package_reports and package_comments
+DROP POLICY IF EXISTS "package_reports_insert_policy" ON public.package_reports;
+CREATE POLICY "package_reports_insert_policy" ON public.package_reports FOR INSERT TO authenticated
+WITH CHECK ( auth.uid() = user_id AND EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'full', 'limited')) );
+
+DROP POLICY IF EXISTS "package_comments_insert_policy" ON public.package_comments;
+CREATE POLICY "package_comments_insert_policy" ON public.package_comments FOR INSERT TO authenticated
+WITH CHECK ( auth.uid() = user_id AND EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'full', 'limited')) );
+
+-- Enforce restrictions on Poll Votes for limited users
+DROP POLICY IF EXISTS "poll_votes_insert_policy" ON public.poll_votes;
+CREATE POLICY "poll_votes_insert_policy" ON public.poll_votes FOR INSERT TO authenticated
+WITH CHECK ( auth.uid() = user_id AND EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'full')) );
+
+-- Secure Profiles (Strict Update)
+DROP POLICY IF EXISTS "profiles_update_policy" ON public.profiles;
+CREATE POLICY "profiles_update_policy" ON public.profiles FOR UPDATE TO authenticated
+USING (
+    auth.uid() = id OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+)
+WITH CHECK (
+    auth.uid() = id OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+);

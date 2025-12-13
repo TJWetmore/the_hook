@@ -72,7 +72,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
                 </button>
 
                 <h2 className="text-2xl font-bold mb-6 text-gray-900 dark:text-white">
-                    {isLogin ? 'Welcome Back' : 'Join The Hook'}
+                    {isLogin ? 'Welcome' : 'Join The Hook'}
                 </h2>
 
                 {error && (
@@ -108,9 +108,6 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
                                         value={buildingAddress}
                                         onChange={(e) => setBuildingAddress(e.target.value)}
                                     >
-                                        <option value="Hillman">Hillman</option>
-                                        <option value="Seward Park">Seward Park</option>
-                                        <option value="Amalgamated">Amalgamated</option>
                                         <option value="East River">East River</option>
                                     </select>
                                 </div>

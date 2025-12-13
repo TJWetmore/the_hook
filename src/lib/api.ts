@@ -5,9 +5,17 @@ export interface Profile {
     id: string;
     user_name: string;
     coop_name: string;
+    unit_number: string;
     is_verified: boolean;
-    avatar_url: string;
+    avatar_url?: string;
+    role: 'admin' | 'full' | 'limited' | 'blocked';
     building_address: string;
+}
+
+export interface AdminUser extends Profile {
+    email: string;
+    created_at: string;
+    last_sign_in_at: string | null;
 }
 
 export interface Campaign {
@@ -108,6 +116,43 @@ export interface PollOption {
     voters?: { user_name: string; avatar_url: string }[];
 }
 
+export interface MarketplaceItem {
+    id: string;
+    item_name: string;
+    description: string;
+    location: string;
+    price?: number;
+    is_negotiable: boolean;
+    give_away_by: string | null;
+    status: 'available' | 'sold' | 'given_away';
+    image_url: string | null;
+    user_id: string;
+    created_at: string;
+    profile: {
+        user_name: string;
+        avatar_url: string;
+    };
+    contact_email?: string;
+    view_count: number;
+    like_count: number;
+    is_liked_by_me: boolean;
+}
+
+export interface DevSupportTicket {
+    id: string;
+    type: 'bug' | 'feature';
+    title: string;
+    description: string;
+    priority: 'low' | 'medium' | 'high' | 'critical';
+    status: 'open' | 'in_progress' | 'resolved' | 'closed';
+    user_id: string;
+    created_at: string;
+    updated_at: string;
+    user_email?: string;
+    upvotes: number;
+    is_liked_by_me: boolean;
+}
+
 export const api = {
     // User & Profile
     fetchProfile: async (userId: string) => {
@@ -174,7 +219,8 @@ export const api = {
                 forum_comments (count)
             `)
             .is('deleted_at', null)
-            .order('created_at', { ascending: false });
+            .order('created_at', { ascending: false })
+            .limit(50);
 
         if (!data) return null;
 
@@ -379,9 +425,11 @@ export const api = {
 
     // Events
     fetchEvents: async () => {
+        const now = new Date().toISOString();
         const { data } = await supabase
             .from('events')
             .select('*')
+            .gt('start_time', now)
             .order('start_time', { ascending: true });
         return data as Event[] | null;
     },
@@ -414,9 +462,9 @@ export const api = {
         const { data } = await supabase
             .from('event_comments')
             .select(`
-            *,
-            profiles (user_name, avatar_url)
-        `)
+                *,
+                profiles (user_name, avatar_url)
+            `)
             .eq('event_id', eventId)
             .order('created_at', { ascending: true });
         return data as Comment[] | null;
@@ -446,18 +494,14 @@ export const api = {
         if (active === true) {
             query = query.gt('closes_at', now).order('created_at', { ascending: false });
         } else if (active === false) {
-            // For past polls, we ideally want to sort by total votes, but that's hard with simple query.
-            // We'll sort by closed date for now and handle popularity sort in client or view.
             query = query.lte('closes_at', now).order('closes_at', { ascending: false });
         } else {
-            // Fetch all, order by created_at
             query = query.order('created_at', { ascending: false });
         }
 
         const { data: polls, error } = await query;
         if (error || !polls) return null;
 
-        // Fetch vote counts and user's vote for each poll
         const pollsWithData = await Promise.all(polls.map(async (poll) => {
             const { count } = await supabase
                 .from('poll_votes')
@@ -471,7 +515,6 @@ export const api = {
                 .eq('user_id', (await supabase.auth.getUser()).data.user?.id)
                 .single();
 
-            // Fetch counts per option
             const optionsWithCounts = await Promise.all(poll.options.map(async (opt: any) => {
                 const { count: optCount } = await supabase
                     .from('poll_votes')
@@ -488,7 +531,6 @@ export const api = {
             };
         }));
 
-        // Client-side sort for past polls by popularity if requested
         if (!active) {
             pollsWithData.sort((a, b) => (b.total_votes || 0) - (a.total_votes || 0));
         }
@@ -497,7 +539,6 @@ export const api = {
     },
 
     createPoll: async (poll: any, options: any[]) => {
-        // 1. Create Poll
         const { data: pollData, error: pollError } = await supabase
             .from('polls')
             .insert(poll)
@@ -506,7 +547,6 @@ export const api = {
 
         if (pollError) return { error: pollError };
 
-        // 2. Create Options
         const optionsWithPollId = options.map(opt => ({
             ...opt,
             poll_id: pollData.id
@@ -520,7 +560,6 @@ export const api = {
     },
 
     castVote: async (pollId: string, optionId: string, userId: string) => {
-        // Check if already voted
         const { data: existingVote } = await supabase
             .from('poll_votes')
             .select('id')
@@ -529,13 +568,11 @@ export const api = {
             .single();
 
         if (existingVote) {
-            // Update vote
             return await supabase
                 .from('poll_votes')
                 .update({ option_id: optionId })
                 .eq('id', existingVote.id);
         } else {
-            // Insert vote
             return await supabase
                 .from('poll_votes')
                 .insert({ poll_id: pollId, option_id: optionId, user_id: userId });
@@ -543,7 +580,6 @@ export const api = {
     },
 
     fetchPollDetails: async (pollId: string) => {
-        // Fetch poll and options
         const { data: poll, error } = await supabase
             .from('polls')
             .select(`
@@ -560,7 +596,6 @@ export const api = {
 
         if (error || !poll) return null;
 
-        // Fetch voters for each option
         const optionsWithVoters = await Promise.all(poll.options.map(async (opt: any) => {
             const { data: votes } = await supabase
                 .from('poll_votes')
@@ -582,7 +617,6 @@ export const api = {
             };
         }));
 
-        // Get current user's vote
         const { data: myVote } = await supabase
             .from('poll_votes')
             .select('option_id')
@@ -614,5 +648,282 @@ export const api = {
         return await supabase
             .from('poll_comments')
             .insert({ poll_id: pollId, user_id: userId, content, parent_id: parentId });
+    },
+
+    // Marketplace
+    fetchMarketplaceItems: async (filterAvailable: boolean = true) => {
+        let query = supabase
+            .from('marketplace_items')
+            .select(`
+                *,
+                profile:profiles (user_name, avatar_url),
+                likes:marketplace_likes (user_id)
+            `)
+            .order('created_at', { ascending: false });
+
+        if (filterAvailable) {
+            const now = new Date().toISOString();
+            query = query
+                .eq('status', 'available')
+                .or(`give_away_by.gt.${now},give_away_by.is.null`);
+        }
+
+        const { data } = await query;
+        if (!data) return null;
+
+        const { data: { user } } = await supabase.auth.getUser();
+
+        return data.map((item: any) => ({
+            ...item,
+            like_count: item.likes ? item.likes.length : 0,
+            is_liked_by_me: user ? item.likes.some((like: any) => like.user_id === user.id) : false
+        })) as MarketplaceItem[];
+    },
+
+    createMarketplaceItem: async (item: any, imageFile?: File | null) => {
+        let imageUrl = null;
+        if (imageFile) {
+            const fileExt = imageFile.name.split('.').pop();
+            const fileName = `${Math.random()}.${fileExt}`;
+            const { error: uploadError } = await supabase.storage
+                .from('marketplace_images')
+                .upload(fileName, imageFile);
+
+            if (uploadError) throw uploadError;
+
+            const { data: { publicUrl } } = supabase.storage
+                .from('marketplace_images')
+                .getPublicUrl(fileName);
+
+            imageUrl = publicUrl;
+        }
+
+        return await supabase.from('marketplace_items').insert({
+            ...item,
+            image_url: imageUrl,
+            view_count: 0
+        });
+    },
+
+    updateMarketplaceItemStatus: async (itemId: string, status: string) => {
+        return await supabase
+            .from('marketplace_items')
+            .update({ status })
+            .eq('id', itemId);
+    },
+
+    incrementMarketplaceItemView: async (itemId: string) => {
+        return await supabase.rpc('increment_marketplace_view', { item_id: itemId });
+    },
+
+    toggleMarketplaceItemLike: async (itemId: string, userId: string) => {
+        const { data } = await supabase
+            .from('marketplace_likes')
+            .select('item_id')
+            .eq('item_id', itemId)
+            .eq('user_id', userId)
+            .single();
+
+        if (data) {
+            return await supabase
+                .from('marketplace_likes')
+                .delete()
+                .eq('item_id', itemId)
+                .eq('user_id', userId);
+        } else {
+            return await supabase
+                .from('marketplace_likes')
+                .insert({ item_id: itemId, user_id: userId });
+        }
+    },
+
+    fetchMarketplaceComments: async (itemId: string) => {
+        // Fetch comments first
+        const { data: comments, error: commentError } = await supabase
+            .from('marketplace_comments')
+            .select('*')
+            .eq('item_id', itemId)
+            .order('created_at', { ascending: true });
+
+        if (commentError) {
+            console.error('Error fetching comments:', commentError);
+            return null;
+        }
+        if (!comments) return null;
+
+        // Manually fetch profiles to avoid FK dependency issues
+        const userIds = [...new Set(comments.map((c: any) => c.user_id))];
+        const { data: profiles } = await supabase
+            .from('profiles')
+            .select('id, user_name, avatar_url')
+            .in('id', userIds);
+
+        const profileMap = new Map(profiles?.map((p: any) => [p.id, p]));
+
+        const { data: myVotes } = await supabase
+            .from('marketplace_comment_votes')
+            .select('comment_id')
+            .eq('user_id', (await supabase.auth.getUser()).data.user?.id);
+
+        const myVotedCommentIds = new Set(myVotes?.map((v: any) => v.comment_id));
+
+        return comments.map((comment: any) => ({
+            ...comment,
+            profiles: profileMap.get(comment.user_id) || { user_name: 'Unknown', avatar_url: '' },
+            upvotes: comment.upvotes || 0,
+            is_useful: myVotedCommentIds.has(comment.id)
+        })) as Comment[];
+    },
+
+    createMarketplaceComment: async (itemId: string, userId: string, content: string, parentId?: string) => {
+        return await supabase
+            .from('marketplace_comments')
+            .insert({ item_id: itemId, user_id: userId, content, parent_id: parentId });
+    },
+
+    toggleMarketplaceCommentUseful: async (commentId: string, userId: string) => {
+        const { data: existingVote } = await supabase
+            .from('marketplace_comment_votes')
+            .select('id')
+            .eq('comment_id', commentId)
+            .eq('user_id', userId)
+            .single();
+
+        if (existingVote) {
+            await supabase.from('marketplace_comment_votes').delete().eq('id', existingVote.id);
+            const { data: comment } = await supabase.from('marketplace_comments').select('upvotes').eq('id', commentId).single();
+            if (comment) {
+                await supabase.from('marketplace_comments').update({ upvotes: Math.max(0, (comment.upvotes || 0) - 1) }).eq('id', commentId);
+            }
+            return { voted: false };
+        } else {
+            await supabase.from('marketplace_comment_votes').insert({ comment_id: commentId, user_id: userId });
+            const { data: comment } = await supabase.from('marketplace_comments').select('upvotes').eq('id', commentId).single();
+            if (comment) {
+                await supabase.from('marketplace_comments').update({ upvotes: (comment.upvotes || 0) + 1 }).eq('id', commentId);
+            }
+            return { voted: true };
+        }
+    },
+
+    deleteMarketplaceComment: async (commentId: string, userId: string) => {
+        return await supabase
+            .from('marketplace_comments')
+            .update({ deleted_at: new Date().toISOString() })
+            .eq('id', commentId)
+            .eq('id', commentId)
+            .eq('user_id', userId);
+    },
+
+    // Dev Support
+    fetchDevSupportTickets: async () => {
+        const { data } = await supabase
+            .from('dev_support_tickets')
+            .select(`
+                *,
+                votes:dev_support_ticket_votes (user_id)
+            `)
+            .order('created_at', { ascending: false });
+
+        if (!data) return null;
+
+        const { data: { user } } = await supabase.auth.getUser();
+
+        return data.map((ticket: any) => ({
+            ...ticket,
+            upvotes: ticket.upvotes || 0,
+            is_liked_by_me: user ? ticket.votes.some((vote: any) => vote.user_id === user.id) : false
+        })) as DevSupportTicket[];
+    },
+
+    createDevSupportTicket: async (ticket: Omit<DevSupportTicket, 'id' | 'created_at' | 'updated_at' | 'user_id' | 'upvotes' | 'is_liked_by_me'>, userId: string) => {
+        const { data, error } = await supabase
+            .from('dev_support_tickets')
+            .insert({ ...ticket, user_id: userId })
+            .select()
+            .single();
+
+        return { data, error };
+    },
+
+    toggleDevSupportTicketVote: async (ticketId: string, userId: string) => {
+        const { data: existingVote } = await supabase
+            .from('dev_support_ticket_votes')
+            .select('id')
+            .eq('ticket_id', ticketId)
+            .eq('user_id', userId)
+            .single();
+
+        if (existingVote) {
+            await supabase.from('dev_support_ticket_votes').delete().eq('id', existingVote.id);
+            const { data: ticket } = await supabase.from('dev_support_tickets').select('upvotes').eq('id', ticketId).single();
+            if (ticket) {
+                await supabase.from('dev_support_tickets').update({ upvotes: Math.max(0, (ticket.upvotes || 0) - 1) }).eq('id', ticketId);
+            }
+            return { voted: false };
+        } else {
+            await supabase.from('dev_support_ticket_votes').insert({ ticket_id: ticketId, user_id: userId });
+            const { data: ticket } = await supabase.from('dev_support_tickets').select('upvotes').eq('id', ticketId).single();
+            if (ticket) {
+                await supabase.from('dev_support_tickets').update({ upvotes: (ticket.upvotes || 0) + 1 }).eq('id', ticketId);
+            }
+            return { voted: true };
+        }
+    },
+
+    fetchDevSupportComments: async (ticketId: string) => {
+        const { data: comments, error } = await supabase
+            .from('dev_support_comments')
+            .select('*')
+            .eq('ticket_id', ticketId)
+            .order('created_at', { ascending: true });
+
+        if (error || !comments) return null;
+
+        // Manual profile fetch
+        const userIds = [...new Set(comments.map((c: any) => c.user_id))];
+        const { data: profiles } = await supabase
+            .from('profiles')
+            .select('id, user_name, avatar_url')
+            .in('id', userIds);
+
+        const profileMap = new Map(profiles?.map((p: any) => [p.id, p]));
+
+        return comments.map((comment: any) => ({
+            ...comment,
+            profiles: profileMap.get(comment.user_id) || { user_name: 'Unknown', avatar_url: '' }
+        })) as Comment[];
+    },
+
+    createDevSupportComment: async (ticketId: string, userId: string, content: string) => {
+        return await supabase
+            .from('dev_support_comments')
+            .insert({ ticket_id: ticketId, user_id: userId, content });
+    },
+
+    // --- Admin Features ---
+    fetchAdminUsers: async (): Promise<AdminUser[] | null> => {
+        const { data, error } = await supabase.rpc('get_admin_users');
+        if (error) {
+            console.error('Error fetching admin users:', error);
+            return null;
+        }
+        return data;
+    },
+
+    updateUserRole: async (userId: string, newRole: 'admin' | 'full' | 'limited' | 'blocked'): Promise<{ error: any }> => {
+        const { error } = await supabase.rpc('update_user_role', {
+            target_user_id: userId,
+            new_role: newRole
+        });
+        return { error };
+    },
+
+    updateUserVerification: async (userId: string, status: boolean): Promise<{ error: any }> => {
+        const { error } = await supabase.rpc('update_user_verification', {
+            target_user_id: userId,
+            status: status
+        });
+        return { error };
     }
 };
