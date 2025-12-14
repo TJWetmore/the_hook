@@ -11,9 +11,10 @@ interface PollsViewProps {
     onRefresh: () => void;
     onVote: (pollId: string, optionId: string) => Promise<void>;
     canInteract?: boolean;
+    isAdmin?: boolean;
 }
 
-export default function PollsView({ polls, onRefresh, onVote, canInteract = true }: PollsViewProps) {
+export default function PollsView({ polls, onRefresh, onVote, canInteract = true, isAdmin = false }: PollsViewProps) {
     const [activeTab, setActiveTab] = useState<'active' | 'past'>('active');
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [selectedPollId, setSelectedPollId] = useState<string | null>(null);
@@ -192,6 +193,11 @@ export default function PollsView({ polls, onRefresh, onVote, canInteract = true
                     onClose={() => setSelectedPollId(null)}
                     currentUserId={user?.id}
                     canComment={canInteract}
+                    isAdmin={isAdmin}
+                    onDelete={() => {
+                        onRefresh();
+                        setSelectedPollId(null);
+                    }}
                 />
             )}
         </div>

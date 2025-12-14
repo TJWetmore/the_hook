@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
 import { api, type DevSupportTicket, type Comment } from '../lib/api';
-import { Plus, Bug, Lightbulb, AlertCircle, CheckCircle, Clock, RotateCw, ThumbsUp, MessageSquare, ChevronDown, ChevronUp, Send } from 'lucide-react';
+import { Plus, Bug, Lightbulb, AlertCircle, CheckCircle, Clock, RotateCw, ThumbsUp, MessageSquare, ChevronDown, ChevronUp, Send, Trash2 } from 'lucide-react';
 import { formatDate } from '../lib/utils';
 
 interface DevSupportViewProps {
     user: { id: string; email?: string } | null;
     canInteract?: boolean;
+    isAdmin?: boolean;
 }
 
-export default function DevSupportView({ user, canInteract = true }: DevSupportViewProps) {
+export default function DevSupportView({ user, canInteract = true, isAdmin = false }: DevSupportViewProps) {
     const [tickets, setTickets] = useState<DevSupportTicket[]>([]);
     const [loading, setLoading] = useState(true);
     const [showCreateForm, setShowCreateForm] = useState(false);
@@ -86,6 +87,43 @@ export default function DevSupportView({ user, canInteract = true }: DevSupportV
 
         if (!error) {
             setNewComment('');
+            const comments = await api.fetchDevSupportComments(ticketId);
+            if (comments) {
+                setTicketComments(prev => ({ ...prev, [ticketId]: comments }));
+            }
+        }
+    };
+
+    const handleDeleteTicket = async (ticketId: string) => {
+        if (!confirm('Are you sure you want to delete this ticket?')) return;
+
+        // Optimistic update
+        setTickets(prev => prev.filter(t => t.id !== ticketId));
+
+        try {
+            await api.softDeleteDevSupportTicket(ticketId);
+        } catch (error) {
+            console.error('Error deleting ticket:', error);
+            fetchTickets(); // Revert
+        }
+    };
+
+    const handleDeleteComment = async (ticketId: string, commentId: string) => {
+        if (!confirm('Are you sure you want to delete this comment?')) return;
+
+        setTicketComments(prev => ({
+            ...prev,
+            [ticketId]: prev[ticketId].map(c => {
+                if (c.id !== commentId) return c;
+                return { ...c, deleted_at: new Date().toISOString() };
+            })
+        }));
+
+        try {
+            await api.softDeleteDevSupportComment(commentId);
+        } catch (error) {
+            console.error('Error deleting comment:', error);
+            // Refresh comments
             const comments = await api.fetchDevSupportComments(ticketId);
             if (comments) {
                 setTicketComments(prev => ({ ...prev, [ticketId]: comments }));
@@ -273,9 +311,24 @@ export default function DevSupportView({ user, canInteract = true }: DevSupportV
                                     )}
                                     <h3 className="text-lg font-bold text-gray-900 dark:text-white">{ticket.title}</h3>
                                 </div>
-                                <span className={`px-2 py-0.5 text-xs font-bold rounded-full uppercase tracking-wide border ${getPriorityColor(ticket.priority)}`}>
-                                    {ticket.priority}
-                                </span>
+                                <div className="flex items-center gap-2">
+                                    <span className={`px-2 py-0.5 text-xs font-bold rounded-full uppercase tracking-wide border ${getPriorityColor(ticket.priority)}`}>
+                                        {ticket.priority}
+                                    </span>
+                                    {/* Delete Ticket Button */}
+                                    {(user?.id === ticket.user_id || isAdmin) && (
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleDeleteTicket(ticket.id);
+                                            }}
+                                            className="ml-2 text-gray-400 hover:text-red-500 transition-colors p-1"
+                                            title="Delete Ticket"
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
+                                    )}
+                                </div>
                             </div>
 
                             <p className="text-gray-600 dark:text-gray-300 mb-4 whitespace-pre-wrap">{ticket.description}</p>
@@ -328,26 +381,49 @@ export default function DevSupportView({ user, canInteract = true }: DevSupportV
                                         ) : !ticketComments[ticket.id] || ticketComments[ticket.id].length === 0 ? (
                                             <p className="text-sm text-gray-500 italic">No comments yet.</p>
                                         ) : (
-                                            ticketComments[ticket.id].map((comment: Comment) => (
-                                                <div key={comment.id} className="flex gap-3">
-                                                    <img
-                                                        src={comment.profiles?.avatar_url || `https://api.dicebear.com/7.x/initials/svg?seed=${user?.email}`}
-                                                        alt="Avatar"
-                                                        className="w-8 h-8 rounded-full bg-gray-100"
-                                                    />
-                                                    <div className="flex-1 bg-gray-50 dark:bg-gray-900/50 rounded-lg p-3">
-                                                        <div className="flex justify-between items-center mb-1">
-                                                            <span className="text-xs font-bold text-gray-900 dark:text-white">
-                                                                {comment.profiles?.user_name || 'User'}
-                                                            </span>
-                                                            <span className="text-xs text-gray-400">
-                                                                {formatDate(comment.created_at)}
-                                                            </span>
+                                            ticketComments[ticket.id].map((comment: Comment) => {
+                                                const isDeleted = !!comment.deleted_at;
+                                                const isAuthor = user?.id === comment.user_id;
+                                                const canDelete = isAuthor || isAdmin;
+
+                                                return (
+                                                    <div key={comment.id} className="flex gap-3">
+                                                        <img
+                                                            src={comment.profiles?.avatar_url || `https://api.dicebear.com/7.x/initials/svg?seed=${user?.email}`}
+                                                            alt="Avatar"
+                                                            className="w-8 h-8 rounded-full bg-gray-100"
+                                                        />
+                                                        <div className="flex-1 bg-gray-50 dark:bg-gray-900/50 rounded-lg p-3 group">
+                                                            <div className="flex justify-between items-center mb-1">
+                                                                <span className="text-xs font-bold text-gray-900 dark:text-white">
+                                                                    {comment.profiles?.user_name || 'User'}
+                                                                </span>
+                                                                <span className="text-xs text-gray-400">
+                                                                    {formatDate(comment.created_at)}
+                                                                </span>
+                                                            </div>
+                                                            {isDeleted ? (
+                                                                <p className="text-sm text-gray-500 italic">deleted by user</p>
+                                                            ) : (
+                                                                <>
+                                                                    <p className="text-sm text-gray-700 dark:text-gray-300">{comment.content}</p>
+                                                                    {canDelete && (
+                                                                        <div className="flex justify-end mt-1">
+                                                                            <button
+                                                                                onClick={() => handleDeleteComment(ticket.id, comment.id)}
+                                                                                className="text-xs text-gray-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                                                                                title="Delete Comment"
+                                                                            >
+                                                                                <Trash2 size={12} />
+                                                                            </button>
+                                                                        </div>
+                                                                    )}
+                                                                </>
+                                                            )}
                                                         </div>
-                                                        <p className="text-sm text-gray-700 dark:text-gray-300">{comment.content}</p>
                                                     </div>
-                                                </div>
-                                            ))
+                                                )
+                                            })
                                         )}
                                     </div>
 

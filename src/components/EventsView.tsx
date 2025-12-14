@@ -20,9 +20,10 @@ interface EventsViewProps {
     events: Event[];
     onRefresh: () => void;
     canInteract?: boolean;
+    isAdmin?: boolean;
 }
 
-export default function EventsView({ events, onRefresh, canInteract = true }: EventsViewProps) {
+export default function EventsView({ events, onRefresh, canInteract = true, isAdmin = false }: EventsViewProps) {
     const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
     const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
     const [user, setUser] = useState<any>(null);
@@ -104,6 +105,11 @@ export default function EventsView({ events, onRefresh, canInteract = true }: Ev
                 onClose={() => setSelectedEvent(null)}
                 currentUserId={user?.id}
                 canComment={canInteract}
+                isAdmin={isAdmin}
+                onDelete={() => {
+                    onRefresh();
+                    setSelectedEvent(null);
+                }}
             />
         </div >
     );
