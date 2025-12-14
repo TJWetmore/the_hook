@@ -143,7 +143,22 @@ create policy "Authenticated users can view scoped events"
 
 create policy "Verified residents can create events"
   on public.events for insert
-  with check ( public.is_verified_resident() AND auth.uid() = created_by );
+  with check (
+    created_by = auth.uid() AND 
+    EXISTS (
+        SELECT 1 FROM public.profiles
+        WHERE id = auth.uid()
+        AND role IN ('admin', 'full')
+    )
+  );
+
+create policy "Event images are publicly accessible"
+  on storage.objects for select
+  using ( bucket_id = 'event_images' );
+
+create policy "Authenticated users can upload event images"
+  on storage.objects for insert
+  with check ( bucket_id = 'event_images' and auth.role() = 'authenticated' );
 
 create policy "Users can update own events"
   on public.events for update
