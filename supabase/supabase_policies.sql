@@ -11,94 +11,15 @@ alter table public.events enable row level security;
 alter table public.package_reports enable row level security;
 alter table public.package_comments enable row level security;
 alter table public.event_comments enable row level security;
+alter table public.polls enable row level security;
+alter table public.poll_options enable row level security;
+alter table public.poll_votes enable row level security;
+alter table public.poll_comments enable row level security;
+alter table public.forum_post_votes enable row level security;
+alter table public.forum_comment_votes enable row level security;
+alter table public.user_activity enable row level security;
 
--- ==========================================
--- STEP 2: HELPER FUNCTIONS
--- ==========================================
 
--- A. Gatekeeper: Checks if user is verified
-create or replace function public.is_verified_resident()
-returns boolean 
-language plpgsql 
-security definer
-set search_path = public
-as $$
-begin
-  return exists (
-    select 1 from public.profiles
-    where id = auth.uid()
-    and is_verified = true
-  );
-end;
-$$;
-
--- B. Scope Checker: Checks if the row's visibility matches user's coop
--- Usage: select public.can_view_scoped_content(visibility_column)
-create or replace function public.can_view_scoped_content(content_visibility text)
-returns boolean 
-language plpgsql 
-security definer
-set search_path = public
-as $$
-begin
-  -- 1. If public, everyone can see
-  if content_visibility = 'public' then
-    return true;
-  end if;
-
-  -- 2. If private/scoped, check against user's coop_name
-  return exists (
-    select 1 from public.profiles
-    where id = auth.uid()
-    and coop_name = content_visibility
-  );
-end;
-$$;
-
--- ==========================================
--- STEP 3: DEFINE POLICIES
--- ==========================================
-
--- A. PROFILES
-create policy "Profiles are viewable by everyone logged in"
-  on public.profiles for select using ( auth.role() = 'authenticated' );
-
-create policy "Users can update own profile"
-  on public.profiles for update using ( auth.uid() = id );
-
--- Prevent users from updating sensitive fields (is_verified, coop_name)
-create or replace function public.prevent_sensitive_updates()
-returns trigger 
-language plpgsql 
-security definer
-set search_path = public
-as $$
-begin
-  -- If the user is NOT a service role (i.e. is a regular authenticated user)
-  -- AND they are trying to change restricted columns
-  if (auth.role() = 'authenticated') then
-    if (new.is_verified is distinct from old.is_verified) then
-      raise exception 'You are not allowed to update is_verified.';
-    end if;
-    if (new.coop_name is distinct from old.coop_name) then
-      raise exception 'You are not allowed to update coop_name.';
-    end if;
-  end if;
-  return new;
-end;
-$$;
-
-drop trigger if exists on_profile_update on public.profiles;
-create trigger on_profile_update
-  before update on public.profiles
-  for each row execute procedure public.prevent_sensitive_updates();
-
--- B. CAMPAIGNS & PERKS (Public Teasers)
-create policy "Campaigns viewable by authenticated"
-  on public.campaigns for select using ( auth.role() = 'authenticated' );
-
-create policy "Perks viewable by authenticated"
-  on public.perks for select using ( auth.role() = 'authenticated' );
 
 -- C. FORUM (Scoped Visibility)
 create policy "Verified residents can view scoped forum posts"
@@ -111,13 +32,23 @@ create policy "Verified residents can view scoped forum posts"
     )
   );
 
-create policy "Verified residents can insert posts"
+create policy "Verified residents can create forum posts"
   on public.forum_posts for insert
-  with check ( public.is_verified_resident() AND auth.uid() = user_id );
+  with check (
+    public.is_verified_resident() 
+    AND auth.uid() = user_id
+    AND EXISTS (
+        SELECT 1 FROM public.profiles
+        WHERE id = auth.uid()
+        AND role IN ('admin', 'full')
+    )
+  );
 
-create policy "Users can edit own posts"
+create policy "Users can update own forum posts"
   on public.forum_posts for update
   using ( auth.uid() = user_id );
+
+
 
 -- D. COMMENTS (Scoped Visibility)
 create policy "Verified residents can view scoped comments"
@@ -130,9 +61,25 @@ create policy "Verified residents can view scoped comments"
     )
   );
 
-create policy "Verified residents can comment"
+create policy "Verified residents can create forum comments"
   on public.forum_comments for insert
-  with check ( public.is_verified_resident() AND auth.uid() = user_id );
+  with check (
+    public.is_verified_resident() 
+    AND auth.uid() = user_id
+    AND EXISTS (
+        SELECT 1 FROM public.profiles
+        WHERE id = auth.uid()
+        AND role IN ('admin', 'full')
+    )
+  );
+
+create policy "Users can update own forum comments"
+  on public.forum_comments for update
+  using ( auth.uid() = user_id );
+
+create policy "Users can delete own forum comments"
+  on public.forum_comments for delete
+  using ( auth.uid() = user_id );
 
 -- E. EVENTS (Scoped Visibility)
 create policy "Authenticated users can view scoped events"
@@ -151,6 +98,8 @@ create policy "Verified residents can create events"
         AND role IN ('admin', 'full')
     )
   );
+
+insert into storage.buckets (id, name, public) values ('event_images', 'event_images', true) on conflict (id) do nothing;
 
 create policy "Event images are publicly accessible"
   on storage.objects for select
@@ -181,6 +130,54 @@ create policy "Verified residents can report packages"
 
 create policy "Users can update own package reports"
   on public.package_reports for update
+  using ( auth.uid() = user_id );
+
+-- PACKAGE COMMENTS
+create policy "Authenticated users can view package comments"
+  on public.package_comments for select
+  using ( exists (select 1 from public.package_reports where id = package_comments.package_id) );
+
+create policy "Users can update own package comments"
+  on public.package_comments for update
+  using ( auth.uid() = user_id );
+
+create policy "Users can delete own package comments"
+  on public.package_comments for delete
+  using ( auth.uid() = user_id );
+
+insert into storage.buckets (id, name, public) values ('package_reports', 'package_reports', true) on conflict (id) do nothing;
+
+create policy "Package report images are publicly accessible"
+  on storage.objects for select
+  using ( bucket_id = 'package_reports' );
+
+create policy "Authenticated users can upload package report images"
+  on storage.objects for insert
+  with check ( bucket_id = 'package_reports' and auth.role() = 'authenticated' );
+
+-- EVENT COMMENTS
+create policy "Authenticated users can view event comments"
+  on public.event_comments for select
+  using ( exists (select 1 from public.events where id = event_comments.event_id) );
+
+create policy "Verified residents can create event comments"
+  on public.event_comments for insert
+  with check (
+    public.is_verified_resident() 
+    AND auth.uid() = user_id
+    AND EXISTS (
+        SELECT 1 FROM public.profiles
+        WHERE id = auth.uid()
+        AND role IN ('admin', 'full')
+    )
+  );
+
+create policy "Users can update own event comments"
+  on public.event_comments for update
+  using ( auth.uid() = user_id );
+
+create policy "Users can delete own event comments"
+  on public.event_comments for delete
   using ( auth.uid() = user_id );
 
 -- G. PLEDGES
@@ -407,3 +404,16 @@ USING (
 WITH CHECK (
     auth.uid() = id OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
 );
+
+-- User Activity (RLS was missing)
+create policy "Users can view own activity"
+    on public.user_activity for select
+    using ( auth.uid() = user_id );
+
+create policy "Users can update own activity"
+    on public.user_activity for update
+    using ( auth.uid() = user_id );
+
+create policy "Users can insert own activity"
+  on public.user_activity for insert
+  with check ( auth.uid() = user_id );
