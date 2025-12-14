@@ -8,9 +8,10 @@ interface PackageDetailModalProps {
     onResolve: () => void;
     currentUserId?: string;
     canComment?: boolean;
+    isAdmin?: boolean;
 }
 
-export default function PackageDetailModal({ pkg, onClose, onResolve, currentUserId, canComment = true }: PackageDetailModalProps) {
+export default function PackageDetailModal({ pkg, onClose, onResolve, currentUserId, canComment = true, isAdmin = false }: PackageDetailModalProps) {
     const [loading, setLoading] = useState(false);
     const [comments, setComments] = useState<Comment[]>([]);
     const [newComment, setNewComment] = useState('');
@@ -27,6 +28,7 @@ export default function PackageDetailModal({ pkg, onClose, onResolve, currentUse
         }
     }, [pkg]);
 
+    // ... (existing useEffects for mentions) ...
     useEffect(() => {
         if (mentionQuery) {
             const search = async () => {
@@ -102,6 +104,7 @@ export default function PackageDetailModal({ pkg, onClose, onResolve, currentUse
     if (!pkg) return null;
 
     const isOwner = currentUserId === pkg.user_id;
+    const canManage = isOwner || isAdmin;
 
     const handleResolve = async () => {
         if (!confirm('Are you sure you want to mark this as resolved? It will be removed from the list.')) return;
@@ -118,6 +121,36 @@ export default function PackageDetailModal({ pkg, onClose, onResolve, currentUse
             alert('Failed to update status.');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleDeletePackage = async () => {
+        if (!confirm('Are you sure you want to delete this package report?')) return;
+
+        try {
+            const { error } = await api.softDeletePackageReport(pkg.id);
+            if (error) throw error;
+            onResolve(); // Refresh parent
+            onClose();
+        } catch (error) {
+            console.error('Error deleting package:', error);
+        }
+    };
+
+    const handleDeleteComment = async (commentId: string) => {
+        if (!confirm('Are you sure you want to delete this comment?')) return;
+
+        // Optimistic update
+        setComments(prev => prev.map(c => {
+            if (c.id !== commentId) return c;
+            return { ...c, deleted_at: new Date().toISOString() };
+        }));
+
+        try {
+            await api.softDeletePackageComment(commentId);
+        } catch (error) {
+            console.error('Error deleting comment:', error);
+            fetchComments();
         }
     };
 
@@ -151,6 +184,9 @@ export default function PackageDetailModal({ pkg, onClose, onResolve, currentUse
 
     const CommentItem = ({ comment, depth = 0 }: { comment: Comment, depth?: number }) => {
         const replies = getReplies(comment.id);
+        const isDeleted = !!comment.deleted_at;
+        const isAuthor = currentUserId === comment.user_id;
+        const canDelete = isAuthor || isAdmin;
 
         // Parse content for mentions
         const renderContent = (content: string) => {
@@ -180,14 +216,31 @@ export default function PackageDetailModal({ pkg, onClose, onResolve, currentUse
                                 {new Date(comment.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                             </span>
                         </div>
-                        <p className="text-sm text-gray-700 dark:text-gray-300">{renderContent(comment.content)}</p>
-                        {currentUserId && (
-                            <button
-                                onClick={() => setReplyTo(comment)}
-                                className="text-xs text-indigo-600 font-bold mt-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
-                                Reply
-                            </button>
+
+                        {isDeleted ? (
+                            <p className="text-sm text-gray-500 italic">deleted by user</p>
+                        ) : (
+                            <>
+                                <p className="text-sm text-gray-700 dark:text-gray-300">{renderContent(comment.content)}</p>
+                                <div className="flex items-center gap-3 mt-1">
+                                    {currentUserId && (
+                                        <button
+                                            onClick={() => setReplyTo(comment)}
+                                            className="text-xs text-indigo-600 font-bold opacity-0 group-hover:opacity-100 transition-opacity"
+                                        >
+                                            Reply
+                                        </button>
+                                    )}
+                                    {canDelete && (
+                                        <button
+                                            onClick={() => handleDeleteComment(comment.id)}
+                                            className="text-xs text-gray-400 hover:text-red-500 transition-colors ml-auto opacity-0 group-hover:opacity-100"
+                                        >
+                                            Delete
+                                        </button>
+                                    )}
+                                </div>
+                            </>
                         )}
                     </div>
                 </div>
@@ -333,12 +386,12 @@ export default function PackageDetailModal({ pkg, onClose, onResolve, currentUse
                     </div>
 
                     {/* Actions */}
-                    {isOwner && (
-                        <div className="mt-8 pt-6 border-t border-gray-100 dark:border-gray-700">
+                    {canManage && (
+                        <div className="mt-8 pt-6 border-t border-gray-100 dark:border-gray-700 flex gap-4">
                             <button
                                 onClick={handleResolve}
                                 disabled={loading}
-                                className="w-full py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-bold rounded-xl hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+                                className="flex-1 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-bold rounded-xl hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
                             >
                                 {loading ? 'Updating...' : (
                                     <>
@@ -347,9 +400,13 @@ export default function PackageDetailModal({ pkg, onClose, onResolve, currentUse
                                     </>
                                 )}
                             </button>
-                            <p className="text-center text-xs text-gray-400 mt-2">
-                                This will remove the post from the community board.
-                            </p>
+                            <button
+                                onClick={handleDeletePackage}
+                                className="px-4 py-3 bg-red-100 hover:bg-red-200 text-red-700 font-bold rounded-xl transition-colors"
+                                title="Delete Report"
+                            >
+                                Delete
+                            </button>
                         </div>
                     )}
                 </div>

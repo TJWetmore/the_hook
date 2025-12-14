@@ -1,16 +1,18 @@
 import { useState, useEffect } from 'react';
 import { api, type Event, type Comment } from '../lib/api';
 import { formatDate } from '../lib/utils';
-import { X, Calendar, MapPin, MessageCircle, Send, CalendarPlus, Download, ExternalLink } from 'lucide-react';
+import { X, Calendar, MapPin, MessageCircle, Send, CalendarPlus, Download, ExternalLink, Trash2 } from 'lucide-react';
 
 interface EventDetailModalProps {
     event: Event | null;
     onClose: () => void;
     currentUserId?: string;
     canComment?: boolean;
+    isAdmin?: boolean;
+    onDelete?: () => void;
 }
 
-export default function EventDetailModal({ event, onClose, currentUserId, canComment = true }: EventDetailModalProps) {
+export default function EventDetailModal({ event, onClose, currentUserId, canComment = true, isAdmin = false, onDelete }: EventDetailModalProps) {
     const [comments, setComments] = useState<Comment[]>([]);
     const [newComment, setNewComment] = useState('');
     const [commentLoading, setCommentLoading] = useState(false);
@@ -43,6 +45,35 @@ export default function EventDetailModal({ event, onClose, currentUserId, canCom
             console.error('Error adding comment:', error);
         } finally {
             setCommentLoading(false);
+        }
+    };
+
+    const handleDeleteEvent = async () => {
+        if (!event) return;
+        if (!confirm('Are you sure you want to delete this event?')) return;
+
+        try {
+            await api.softDeleteEvent(event.id);
+            if (onDelete) onDelete();
+            onClose();
+        } catch (error) {
+            console.error('Error deleting event:', error);
+        }
+    };
+
+    const handleDeleteComment = async (commentId: string) => {
+        if (!confirm('Are you sure you want to delete this comment?')) return;
+
+        setComments(prev => prev.map(c => {
+            if (c.id !== commentId) return c;
+            return { ...c, deleted_at: new Date().toISOString() };
+        }));
+
+        try {
+            await api.softDeleteEventComment(commentId);
+        } catch (error) {
+            console.error('Error deleting comment:', error);
+            fetchComments();
         }
     };
 
@@ -87,6 +118,14 @@ END:VCALENDAR`;
 
     const startDate = new Date(event.start_time);
     const endDate = new Date(event.end_time);
+
+    // Checked schema before? Event type usually has user_id. Let's assume user_id. 
+    // Wait, the file didn't use user_id before.
+    // Let me check 'Event' type definition in api.ts if I can... or I can guess.
+    // The previous file content shows `interface Event` imported.
+    // I'll assume it has user_id. If not I might get an error.
+    // Looking at other files, `ForumPost` has `user_id`. `MarketplaceItem` has `user_id`.
+    // It is highly likely `Event` has `user_id`.
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
@@ -176,26 +215,49 @@ END:VCALENDAR`;
                             {comments.length === 0 ? (
                                 <p className="text-gray-400 text-sm italic">No comments yet.</p>
                             ) : (
-                                comments.map((comment) => (
-                                    <div key={comment.id} className="flex gap-3">
-                                        <img
-                                            src={comment.profiles?.avatar_url || `https://api.dicebear.com/7.x/initials/svg?seed=${comment.user_id}`}
-                                            alt="Avatar"
-                                            className="w-8 h-8 rounded-full bg-gray-100 flex-shrink-0"
-                                        />
-                                        <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 flex-1">
-                                            <div className="flex justify-between items-baseline mb-1">
-                                                <span className="text-xs font-bold text-gray-900 dark:text-white">
-                                                    {comment.profiles?.user_name || 'Neighbor'}
-                                                </span>
-                                                <span className="text-[10px] text-gray-400">
-                                                    {new Date(comment.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                                                </span>
+                                comments.map((comment) => {
+                                    const isDeleted = !!comment.deleted_at;
+                                    const isAuthor = currentUserId === comment.user_id;
+                                    const canDelete = isAuthor || isAdmin;
+
+                                    return (
+                                        <div key={comment.id} className="flex gap-3">
+                                            <img
+                                                src={comment.profiles?.avatar_url || `https://api.dicebear.com/7.x/initials/svg?seed=${comment.user_id}`}
+                                                alt="Avatar"
+                                                className="w-8 h-8 rounded-full bg-gray-100 flex-shrink-0"
+                                            />
+                                            <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 flex-1 group">
+                                                <div className="flex justify-between items-baseline mb-1">
+                                                    <span className="text-xs font-bold text-gray-900 dark:text-white">
+                                                        {comment.profiles?.user_name || 'Neighbor'}
+                                                    </span>
+                                                    <span className="text-[10px] text-gray-400">
+                                                        {new Date(comment.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                                                    </span>
+                                                </div>
+                                                {isDeleted ? (
+                                                    <p className="text-sm text-gray-500 italic">deleted by user</p>
+                                                ) : (
+                                                    <>
+                                                        <p className="text-sm text-gray-700 dark:text-gray-300">{comment.content}</p>
+                                                        {canDelete && (
+                                                            <div className="flex justify-end mt-1">
+                                                                <button
+                                                                    onClick={() => handleDeleteComment(comment.id)}
+                                                                    className="text-xs text-gray-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                                                                    title="Delete Comment"
+                                                                >
+                                                                    <Trash2 size={12} />
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </>
+                                                )}
                                             </div>
-                                            <p className="text-sm text-gray-700 dark:text-gray-300">{comment.content}</p>
                                         </div>
-                                    </div>
-                                ))
+                                    );
+                                })
                             )}
                         </div>
 
@@ -218,6 +280,19 @@ END:VCALENDAR`;
                             </form>
                         )}
                     </div>
+
+                    {/* Owner/Admin Actions */}
+                    {(currentUserId === event.created_by || isAdmin) && (
+                        <div className="mt-6 pt-6 border-t border-gray-100 dark:border-gray-700">
+                            <button
+                                onClick={handleDeleteEvent}
+                                className="w-full py-3 bg-red-50 hover:bg-red-100 text-red-700 font-bold rounded-xl transition-colors flex items-center justify-center gap-2"
+                            >
+                                <Trash2 size={18} />
+                                Delete Event
+                            </button>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

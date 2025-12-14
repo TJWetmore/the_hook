@@ -340,6 +340,8 @@ function App() {
     return <BlockedUserView />;
   }
 
+  const isAdmin = profile?.role === 'admin';
+
   return (
     <div className="min-h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-sans flex">
       {/* Sidebar */}
@@ -467,9 +469,9 @@ function App() {
           ) : (
             <div className="space-y-6 flex-1">
               {/* VIEWS */}
-              {activeTab === 'events' && <EventsView events={events} onRefresh={() => fetchData(true)} canInteract={profile?.role !== 'limited'} />}
+              {activeTab === 'events' && <EventsView events={events} onRefresh={() => fetchData(true)} canInteract={profile?.role !== 'limited'} isAdmin={isAdmin} />}
               {activeTab === 'perks' && <PerksView />}
-              {activeTab === 'polls' && <PollsView polls={polls} onRefresh={() => fetchData(true)} onVote={handleVote} canInteract={profile?.role !== 'limited'} />}
+              {activeTab === 'polls' && <PollsView polls={polls} onRefresh={() => fetchData(true)} onVote={handleVote} canInteract={profile?.role !== 'limited'} isAdmin={isAdmin} />}
               {activeTab === 'marketplace' &&
                 <MarketplaceView
                   user={user}
@@ -480,7 +482,7 @@ function App() {
                   onLikeToggle={handleMarketplaceLike}
                 />
               }
-              {activeTab === 'dev-support' && <DevSupportView user={user} canInteract={profile?.role !== 'limited'} />}
+              {activeTab === 'dev-support' && <DevSupportView user={user} canInteract={profile?.role !== 'limited'} isAdmin={isAdmin} />}
               {activeTab === 'admin' && profile?.role === 'admin' && <AdminUserView />}
 
               {activeTab === 'dashboard' && (
@@ -728,12 +730,15 @@ function App() {
         onResolve={() => fetchData(true)}
         currentUserId={user?.id}
         canComment={profile?.role !== 'limited'}
+        isAdmin={isAdmin}
       />
       <PostDetailModal
         post={selectedPost}
         onClose={() => setSelectedPost(null)}
         currentUserId={user?.id}
         canComment={profile?.role !== 'limited'}
+        isAdmin={isAdmin}
+        onDelete={() => fetchData(true)}
       />
       <CreateMarketplaceItemModal
         isOpen={isCreateMarketplaceItemOpen}
@@ -762,6 +767,11 @@ function App() {
           }
         }}
         canComment={profile?.role !== 'limited'}
+        isAdmin={isAdmin}
+        onDelete={() => {
+          fetchData(true);
+          setSelectedMarketplaceItem(null);
+        }}
       />
 
       {/* Mobile Bottom Nav (Optional, but good for mobile) */}

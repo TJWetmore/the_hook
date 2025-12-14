@@ -8,9 +8,11 @@ interface PostDetailModalProps {
     onClose: () => void;
     currentUserId?: string;
     canComment?: boolean;
+    isAdmin?: boolean;
+    onDelete?: () => void;
 }
 
-export default function PostDetailModal({ post, onClose, currentUserId, canComment = true }: PostDetailModalProps) {
+export default function PostDetailModal({ post, onClose, currentUserId, canComment = true, isAdmin = false, onDelete }: PostDetailModalProps) {
     const [comments, setComments] = useState<Comment[]>([]);
     const [localPost, setLocalPost] = useState<ForumPost | null>(post);
     const [newComment, setNewComment] = useState('');
@@ -74,17 +76,16 @@ export default function PostDetailModal({ post, onClose, currentUserId, canComme
     };
 
     const handleDeletePost = async () => {
-        if (!localPost || !currentUserId || localPost.user_id !== currentUserId) return;
+        if (!localPost || !currentUserId) return;
+        // Allow if owner OR admin
+        if (localPost.user_id !== currentUserId && !isAdmin) return;
+
         if (!confirm('Are you sure you want to delete this post?')) return;
 
         try {
-            await api.deletePost(localPost.id, currentUserId);
+            await api.softDeletePost(localPost.id);
+            if (onDelete) onDelete();
             onClose();
-            // Trigger a refresh in parent if possible, or just close. 
-            // Ideally we should pass a callback like onPostDeleted.
-            // For now, just closing is fine, the list might be stale until refresh.
-            // We can force a reload by calling window.location.reload() or better, pass a callback.
-            window.location.reload();
         } catch (error) {
             console.error('Error deleting post:', error);
         }
@@ -92,6 +93,13 @@ export default function PostDetailModal({ post, onClose, currentUserId, canComme
 
     const handleDeleteComment = async (commentId: string) => {
         if (!currentUserId) return;
+
+        // Find comment to check ownership (not efficient but safe)
+        const comment = comments.find(c => c.id === commentId);
+        if (!comment) return;
+
+        if (comment.user_id !== currentUserId && !isAdmin) return;
+
         if (!confirm('Are you sure you want to delete this comment?')) return;
 
         // Optimistic update
@@ -101,7 +109,7 @@ export default function PostDetailModal({ post, onClose, currentUserId, canComme
         }));
 
         try {
-            await api.deleteComment(commentId, currentUserId);
+            await api.softDeleteComment(commentId);
         } catch (error) {
             console.error('Error deleting comment:', error);
             fetchComments(); // Revert
@@ -191,6 +199,7 @@ export default function PostDetailModal({ post, onClose, currentUserId, canComme
 
         const isDeleted = !!comment.deleted_at;
         const isAuthor = currentUserId === comment.user_id;
+        const canDelete = isAuthor || isAdmin;
 
         return (
             <div className={`flex flex-col gap-2 ${depth > 0 ? 'ml-8 mt-2' : ''}`}>
@@ -231,7 +240,7 @@ export default function PostDetailModal({ post, onClose, currentUserId, canComme
                                         <ThumbsUp size={12} className={comment.is_useful ? 'fill-current' : ''} />
                                         {comment.upvotes || 0}
                                     </button>
-                                    {isAuthor && (
+                                    {canDelete && (
                                         <button
                                             onClick={() => handleDeleteComment(comment.id)}
                                             className="text-xs text-gray-400 hover:text-red-500 transition-colors ml-auto opacity-0 group-hover:opacity-100"
@@ -284,7 +293,7 @@ export default function PostDetailModal({ post, onClose, currentUserId, canComme
                         <div className="prose dark:prose-invert max-w-none flex-1">
                             <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{localPost.content}</p>
                         </div>
-                        {currentUserId === localPost.user_id && (
+                        {(currentUserId === localPost.user_id || isAdmin) && (
                             <button
                                 onClick={handleDeletePost}
                                 className="text-gray-400 hover:text-red-500 transition-colors p-2"

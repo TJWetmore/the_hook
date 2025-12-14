@@ -30,6 +30,7 @@ create policy "Verified residents can view scoped forum posts"
       public.can_view_scoped_content(visibility) 
       OR user_id = auth.uid() -- Author can always see their own
     )
+    AND deleted_at IS NULL
   );
 
 create policy "Verified residents can create forum posts"
@@ -46,7 +47,17 @@ create policy "Verified residents can create forum posts"
 
 create policy "Users can update own forum posts"
   on public.forum_posts for update
-  using ( auth.uid() = user_id );
+  using ( 
+    auth.uid() = user_id 
+    OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+  );
+
+create policy "Users can delete own forum posts"
+  on public.forum_posts for delete
+  using ( 
+    auth.uid() = user_id 
+    OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+  );
 
 
 
@@ -59,6 +70,7 @@ create policy "Verified residents can view scoped comments"
       public.can_view_scoped_content(visibility) 
       OR user_id = auth.uid()
     )
+    AND deleted_at IS NULL
   );
 
 create policy "Verified residents can create forum comments"
@@ -75,17 +87,24 @@ create policy "Verified residents can create forum comments"
 
 create policy "Users can update own forum comments"
   on public.forum_comments for update
-  using ( auth.uid() = user_id );
+  using ( 
+    auth.uid() = user_id 
+    OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+  );
 
 create policy "Users can delete own forum comments"
   on public.forum_comments for delete
-  using ( auth.uid() = user_id );
+  using ( 
+    auth.uid() = user_id 
+    OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+  );
 
 -- E. EVENTS (Scoped Visibility)
 create policy "Authenticated users can view scoped events"
   on public.events for select
   using (
     public.can_view_scoped_content(visibility)
+    AND deleted_at IS NULL
   );
 
 create policy "Verified residents can create events"
@@ -111,7 +130,17 @@ create policy "Authenticated users can upload event images"
 
 create policy "Users can update own events"
   on public.events for update
-  using ( auth.uid() = created_by );
+  using ( 
+    auth.uid() = created_by 
+    OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+  );
+
+create policy "Users can delete own events"
+  on public.events for delete
+  using ( 
+    auth.uid() = created_by 
+    OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+  );
 
 -- F. PACKAGE REPORTS (Strict + Scoped)
 create policy "Verified residents can view scoped packages"
@@ -122,6 +151,7 @@ create policy "Verified residents can view scoped packages"
       public.can_view_scoped_content(visibility)
       OR user_id = auth.uid()
     )
+    AND deleted_at IS NULL
   );
 
 create policy "Verified residents can report packages"
@@ -130,20 +160,39 @@ create policy "Verified residents can report packages"
 
 create policy "Users can update own package reports"
   on public.package_reports for update
-  using ( auth.uid() = user_id );
+  using ( 
+    auth.uid() = user_id 
+    OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+  );
+
+create policy "Users can delete own package reports"
+  on public.package_reports for delete
+  using ( 
+    auth.uid() = user_id 
+    OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+  );
 
 -- PACKAGE COMMENTS
 create policy "Authenticated users can view package comments"
   on public.package_comments for select
-  using ( exists (select 1 from public.package_reports where id = package_comments.package_id) );
+  using ( 
+    exists (select 1 from public.package_reports where id = package_comments.package_id) 
+    AND deleted_at IS NULL
+  );
 
 create policy "Users can update own package comments"
   on public.package_comments for update
-  using ( auth.uid() = user_id );
+  using ( 
+    auth.uid() = user_id 
+    OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+  );
 
 create policy "Users can delete own package comments"
   on public.package_comments for delete
-  using ( auth.uid() = user_id );
+  using ( 
+    auth.uid() = user_id 
+    OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+  );
 
 insert into storage.buckets (id, name, public) values ('package_reports', 'package_reports', true) on conflict (id) do nothing;
 
@@ -158,7 +207,10 @@ create policy "Authenticated users can upload package report images"
 -- EVENT COMMENTS
 create policy "Authenticated users can view event comments"
   on public.event_comments for select
-  using ( exists (select 1 from public.events where id = event_comments.event_id) );
+  using ( 
+    exists (select 1 from public.events where id = event_comments.event_id)
+    AND deleted_at IS NULL
+  );
 
 create policy "Verified residents can create event comments"
   on public.event_comments for insert
@@ -174,11 +226,17 @@ create policy "Verified residents can create event comments"
 
 create policy "Users can update own event comments"
   on public.event_comments for update
-  using ( auth.uid() = user_id );
+  using ( 
+    auth.uid() = user_id 
+    OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+  );
 
 create policy "Users can delete own event comments"
   on public.event_comments for delete
-  using ( auth.uid() = user_id );
+  using ( 
+    auth.uid() = user_id 
+    OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+  );
 
 -- G. PLEDGES
 create policy "Users can view own pledges"
@@ -191,11 +249,28 @@ create policy "Verified residents can pledge"
 -- H. POLLS
 create policy "Authenticated users can view scoped polls"
   on public.polls for select
-  using ( public.can_view_scoped_content(visibility) );
+  using ( 
+    public.can_view_scoped_content(visibility)
+    AND deleted_at IS NULL
+  );
 
 create policy "Verified residents can create polls"
   on public.polls for insert
   with check ( public.is_verified_resident() AND auth.uid() = created_by );
+
+create policy "Users can update own polls"
+  on public.polls for update
+  using ( 
+    auth.uid() = created_by 
+    OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+  );
+
+create policy "Users can delete own polls"
+  on public.polls for delete
+  using ( 
+    auth.uid() = created_by 
+    OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+  );
 
 -- I. POLL OPTIONS
 create policy "Authenticated users can view poll options"
@@ -243,7 +318,10 @@ create policy "Users can change their vote"
 -- K. POLL COMMENTS
 create policy "Authenticated users can view poll comments"
   on public.poll_comments for select
-  using ( exists (select 1 from public.polls where id = poll_comments.poll_id) );
+  using ( 
+    exists (select 1 from public.polls where id = poll_comments.poll_id)
+    AND deleted_at IS NULL
+  );
 
 create policy "Verified residents can comment on polls"
   on public.poll_comments for insert
@@ -254,6 +332,20 @@ create policy "Verified residents can comment on polls"
       select 1 from public.polls 
       where id = poll_comments.poll_id 
     )
+  );
+
+create policy "Users can update own poll comments"
+  on public.poll_comments for update
+  using ( 
+    auth.uid() = user_id 
+    OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+  );
+
+create policy "Users can delete own poll comments"
+  on public.poll_comments for delete
+  using ( 
+    auth.uid() = user_id 
+    OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
   );
 
 -- L. FORUM VOTES
@@ -292,16 +384,24 @@ alter table public.marketplace_comment_votes enable row level security;
 
 -- Items
 create policy "Marketplace items are viewable by everyone"
-    on public.marketplace_items for select using (true);
+    on public.marketplace_items for select using (
+        deleted_at IS NULL
+    );
 
 create policy "Users can insert their own marketplace items"
     on public.marketplace_items for insert with check (auth.uid() = user_id);
 
 create policy "Users can update their own marketplace items"
-    on public.marketplace_items for update using (auth.uid() = user_id);
+    on public.marketplace_items for update using (
+        auth.uid() = user_id 
+        OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+    );
 
-create policy "Users can delete their own marketplace items"
-    on public.marketplace_items for delete using (auth.uid() = user_id);
+create policy "Users can delete own marketplace items"
+    on public.marketplace_items for delete using (
+        auth.uid() = user_id 
+        OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+    );
 
 -- Likes
 create policy "Likes are viewable by everyone"
@@ -315,16 +415,24 @@ create policy "Users can remove their own likes"
 
 -- Comments
 create policy "Marketplace comments are viewable by everyone"
-    on public.marketplace_comments for select using (true);
+    on public.marketplace_comments for select using (
+        deleted_at IS NULL
+    );
 
 create policy "Authenticated users can create marketplace comments"
     on public.marketplace_comments for insert with check (auth.uid() = user_id);
 
 create policy "Users can update their own marketplace comments"
-    on public.marketplace_comments for update using (auth.uid() = user_id);
+    on public.marketplace_comments for update using (
+        auth.uid() = user_id 
+        OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+    );
 
 create policy "Users can delete their own marketplace comments"
-    on public.marketplace_comments for delete using (auth.uid() = user_id);
+    on public.marketplace_comments for delete using (
+        auth.uid() = user_id 
+        OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+    );
 
 -- Comment Votes
 create policy "Marketplace comment votes are viewable by everyone"
@@ -355,20 +463,45 @@ alter table public.dev_support_ticket_views enable row level security;
 
 -- Tickets
 create policy "Tickets are viewable by everyone"
-    on public.dev_support_tickets for select using (true);
+    on public.dev_support_tickets for select using (
+        deleted_at IS NULL
+    );
 
 create policy "Authenticated users can create tickets"
     on public.dev_support_tickets for insert with check (auth.uid() = user_id);
 
 create policy "Users can update their own tickets"
-    on public.dev_support_tickets for update using (auth.uid() = user_id);
+    on public.dev_support_tickets for update using (
+        auth.uid() = user_id 
+        OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+    );
+
+create policy "Users can delete own tickets"
+    on public.dev_support_tickets for delete using (
+        auth.uid() = user_id 
+        OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+    );
 
 -- Interactions (Comments, Votes, Views)
 create policy "Dev support interactions viewable by everyone"
-    on public.dev_support_comments for select using (true);
+    on public.dev_support_comments for select using (
+        deleted_at IS NULL
+    );
 
 create policy "Authenticated users can comment on tickets"
     on public.dev_support_comments for insert with check (auth.uid() = user_id);
+
+create policy "Users can update own dev comments"
+    on public.dev_support_comments for update using (
+        auth.uid() = user_id 
+        OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+    );
+
+create policy "Users can delete own dev comments"
+    on public.dev_support_comments for delete using (
+        auth.uid() = user_id 
+        OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+    );
 
 create policy "Authenticated users can vote on tickets"
     on public.dev_support_ticket_votes for insert with check (auth.uid() = user_id);

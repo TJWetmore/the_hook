@@ -280,6 +280,7 @@ export const api = {
                     profiles (user_name, avatar_url)
                 `)
                 .eq('post_id', postId)
+                .is('deleted_at', null)
                 .order('created_at', { ascending: true });
 
             if (!data) return null;
@@ -382,28 +383,26 @@ export const api = {
         }
     },
 
-    deletePost: async (postId: string, userId: string) => {
+    softDeletePost: async (postId: string) => {
         try {
             return await supabase
                 .from('forum_posts')
                 .update({ deleted_at: new Date().toISOString() })
-                .eq('id', postId)
-                .eq('user_id', userId);
+                .eq('id', postId);
         } catch (error) {
-            console.error('Error deleting post:', error);
+            console.error('Error soft deleting post:', error);
             return { error };
         }
     },
 
-    deleteComment: async (commentId: string, userId: string) => {
+    softDeleteComment: async (commentId: string) => {
         try {
             return await supabase
                 .from('forum_comments')
                 .update({ deleted_at: new Date().toISOString() })
-                .eq('id', commentId)
-                .eq('user_id', userId);
+                .eq('id', commentId);
         } catch (error) {
-            console.error('Error deleting comment:', error);
+            console.error('Error soft deleting comment:', error);
             return { error };
         }
     },
@@ -415,6 +414,7 @@ export const api = {
                 .from('package_reports')
                 .select('*')
                 .eq('status', 'open')
+                .is('deleted_at', null)
                 .order('created_at', { ascending: false });
 
             if (filterOld) {
@@ -481,6 +481,7 @@ export const api = {
                 profiles (user_name, avatar_url)
             `)
                 .eq('package_id', packageId)
+                .is('deleted_at', null)
                 .order('created_at', { ascending: true });
             return data as Comment[] | null;
         } catch (error) {
@@ -496,6 +497,30 @@ export const api = {
                 .insert({ package_id: packageId, user_id: userId, content, parent_id: parentId });
         } catch (error) {
             console.error('Error creating package comment:', error);
+            return { error };
+        }
+    },
+
+    softDeletePackageReport: async (reportId: string) => {
+        try {
+            return await supabase
+                .from('package_reports')
+                .update({ deleted_at: new Date().toISOString() })
+                .eq('id', reportId);
+        } catch (error) {
+            console.error('Error soft deleting package report:', error);
+            return { error };
+        }
+    },
+
+    softDeletePackageComment: async (commentId: string) => {
+        try {
+            return await supabase
+                .from('package_comments')
+                .update({ deleted_at: new Date().toISOString() })
+                .eq('id', commentId);
+        } catch (error) {
+            console.error('Error soft deleting package comment:', error);
             return { error };
         }
     },
@@ -522,6 +547,7 @@ export const api = {
                 .from('events')
                 .select('*')
                 .gt('start_time', now)
+                .is('deleted_at', null)
                 .order('start_time', { ascending: true });
             return data as Event[] | null;
         } catch (error) {
@@ -568,6 +594,7 @@ export const api = {
                     profiles (user_name, avatar_url)
                 `)
                 .eq('event_id', eventId)
+                .is('deleted_at', null)
                 .order('created_at', { ascending: true });
             return data as Comment[] | null;
         } catch (error) {
@@ -587,6 +614,30 @@ export const api = {
         }
     },
 
+    softDeleteEvent: async (eventId: string) => {
+        try {
+            return await supabase
+                .from('events')
+                .update({ deleted_at: new Date().toISOString() })
+                .eq('id', eventId);
+        } catch (error) {
+            console.error('Error soft deleting event:', error);
+            return { error };
+        }
+    },
+
+    softDeleteEventComment: async (commentId: string) => {
+        try {
+            return await supabase
+                .from('event_comments')
+                .update({ deleted_at: new Date().toISOString() })
+                .eq('id', commentId);
+        } catch (error) {
+            console.error('Error soft deleting event comment:', error);
+            return { error };
+        }
+    },
+
     // Polls
     fetchPolls: async (active: boolean | null = true) => {
         try {
@@ -601,7 +652,8 @@ export const api = {
                     description,
                     image_url
                 )
-            `);
+            `)
+                .is('deleted_at', null);
 
             if (active === true) {
                 query = query.gt('closes_at', now).order('created_at', { ascending: false });
@@ -772,6 +824,7 @@ export const api = {
                 profiles (user_name, avatar_url)
             `)
                 .eq('poll_id', pollId)
+                .is('deleted_at', null)
                 .order('created_at', { ascending: true });
             return data as Comment[] | null;
         } catch (error) {
@@ -791,6 +844,30 @@ export const api = {
         }
     },
 
+    softDeletePoll: async (pollId: string) => {
+        try {
+            return await supabase
+                .from('polls')
+                .update({ deleted_at: new Date().toISOString() })
+                .eq('id', pollId);
+        } catch (error) {
+            console.error('Error soft deleting poll:', error);
+            return { error };
+        }
+    },
+
+    softDeletePollComment: async (commentId: string) => {
+        try {
+            return await supabase
+                .from('poll_comments')
+                .update({ deleted_at: new Date().toISOString() })
+                .eq('id', commentId);
+        } catch (error) {
+            console.error('Error soft deleting poll comment:', error);
+            return { error };
+        }
+    },
+
     // Marketplace
     fetchMarketplaceItems: async (filterAvailable: boolean = true) => {
         try {
@@ -801,6 +878,7 @@ export const api = {
                 profile:profiles (user_name, avatar_url),
                 likes:marketplace_likes (user_id)
             `)
+                .is('deleted_at', null)
                 .order('created_at', { ascending: false });
 
             if (filterAvailable) {
@@ -910,6 +988,7 @@ export const api = {
                 .from('marketplace_comments')
                 .select('*')
                 .eq('item_id', itemId)
+                .is('deleted_at', null)
                 .order('created_at', { ascending: true });
 
             if (commentError) {
@@ -987,16 +1066,26 @@ export const api = {
         }
     },
 
-    deleteMarketplaceComment: async (commentId: string, userId: string) => {
+    softDeleteMarketplaceComment: async (commentId: string) => {
         try {
             return await supabase
                 .from('marketplace_comments')
                 .update({ deleted_at: new Date().toISOString() })
-                .eq('id', commentId)
-                .eq('id', commentId)
-                .eq('user_id', userId);
+                .eq('id', commentId);
         } catch (error) {
-            console.error('Error deleting marketplace comment:', error);
+            console.error('Error soft deleting marketplace comment:', error);
+            return { error };
+        }
+    },
+
+    softDeleteMarketplaceItem: async (itemId: string) => {
+        try {
+            return await supabase
+                .from('marketplace_items')
+                .update({ deleted_at: new Date().toISOString() })
+                .eq('id', itemId);
+        } catch (error) {
+            console.error('Error soft deleting marketplace item:', error);
             return { error };
         }
     },
@@ -1010,6 +1099,7 @@ export const api = {
                 *,
                 votes:dev_support_ticket_votes (user_id)
             `)
+                .is('deleted_at', null)
                 .order('created_at', { ascending: false });
 
             if (!data) return null;
@@ -1078,6 +1168,7 @@ export const api = {
                 .from('dev_support_comments')
                 .select('*')
                 .eq('ticket_id', ticketId)
+                .is('deleted_at', null)
                 .order('created_at', { ascending: true });
 
             if (error || !comments) return null;
@@ -1108,6 +1199,30 @@ export const api = {
                 .insert({ ticket_id: ticketId, user_id: userId, content });
         } catch (error) {
             console.error('Error creating dev support comment:', error);
+            return { error };
+        }
+    },
+
+    softDeleteDevSupportTicket: async (ticketId: string) => {
+        try {
+            return await supabase
+                .from('dev_support_tickets')
+                .update({ deleted_at: new Date().toISOString() })
+                .eq('id', ticketId);
+        } catch (error) {
+            console.error('Error soft deleting dev support ticket:', error);
+            return { error };
+        }
+    },
+
+    softDeleteDevSupportComment: async (commentId: string) => {
+        try {
+            return await supabase
+                .from('dev_support_comments')
+                .update({ deleted_at: new Date().toISOString() })
+                .eq('id', commentId);
+        } catch (error) {
+            console.error('Error soft deleting dev support comment:', error);
             return { error };
         }
     },

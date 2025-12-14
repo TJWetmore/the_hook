@@ -11,9 +11,22 @@ interface MarketplaceItemDetailModalProps {
     currentUserId?: string;
     onStatusUpdate?: (status: 'sold' | 'given_away') => void;
     canComment?: boolean;
+    isAdmin?: boolean;
 }
 
-export default function MarketplaceItemDetailModal({ item, onClose, onLikeToggle, onView, currentUserId, onStatusUpdate, canComment = true }: MarketplaceItemDetailModalProps) {
+interface MarketplaceItemDetailModalProps {
+    item: MarketplaceItem | null;
+    onClose: () => void;
+    onLikeToggle: () => void;
+    onView?: () => void;
+    currentUserId?: string;
+    onStatusUpdate?: (status: 'sold' | 'given_away') => void;
+    canComment?: boolean;
+    isAdmin?: boolean;
+    onDelete?: () => void;
+}
+
+export default function MarketplaceItemDetailModal({ item, onClose, onLikeToggle, onView, currentUserId, onStatusUpdate, canComment = true, isAdmin = false, onDelete }: MarketplaceItemDetailModalProps) {
     const hasIncrementedView = useRef(false);
     const [comments, setComments] = useState<Comment[]>([]);
     const [newComment, setNewComment] = useState('');
@@ -78,6 +91,11 @@ export default function MarketplaceItemDetailModal({ item, onClose, onLikeToggle
 
     const handleDeleteComment = async (commentId: string) => {
         if (!currentUserId) return;
+
+        const comment = comments.find(c => c.id === commentId);
+        if (!comment) return;
+        if (comment.user_id !== currentUserId && !isAdmin) return;
+
         if (!confirm('Are you sure you want to delete this comment?')) return;
 
         setComments(prev => prev.map(c => {
@@ -86,7 +104,7 @@ export default function MarketplaceItemDetailModal({ item, onClose, onLikeToggle
         }));
 
         try {
-            await api.deleteMarketplaceComment(commentId, currentUserId);
+            await api.softDeleteMarketplaceComment(commentId);
         } catch (error) {
             console.error('Error deleting comment:', error);
             fetchComments();
@@ -106,6 +124,20 @@ export default function MarketplaceItemDetailModal({ item, onClose, onLikeToggle
         }
     };
 
+    const handleDeleteItem = async () => {
+        if (!item) return;
+        if (item.user_id !== currentUserId && !isAdmin) return;
+        if (!confirm('Are you sure you want to delete this item?')) return;
+
+        try {
+            await api.softDeleteMarketplaceItem(item.id);
+            if (onDelete) onDelete();
+            onClose();
+        } catch (error) {
+            console.error('Error deleting item:', error);
+        }
+    };
+
     // --- Render Helpers ---
     const rootComments = comments.filter(c => !c.parent_id);
     const getReplies = (parentId: string) => comments.filter(c => c.parent_id === parentId);
@@ -114,6 +146,7 @@ export default function MarketplaceItemDetailModal({ item, onClose, onLikeToggle
         const replies = getReplies(comment.id);
         const isDeleted = !!comment.deleted_at;
         const isAuthor = currentUserId === comment.user_id;
+        const canDelete = isAuthor || isAdmin;
 
         return (
             <div className={`flex flex-col gap-2 ${depth > 0 ? 'ml-8 mt-2' : ''}`}>
@@ -154,7 +187,7 @@ export default function MarketplaceItemDetailModal({ item, onClose, onLikeToggle
                                         <ThumbsUp size={12} className={comment.is_useful ? 'fill-current' : ''} />
                                         {comment.upvotes || 0}
                                     </button>
-                                    {isAuthor && (
+                                    {canDelete && (
                                         <button
                                             onClick={() => handleDeleteComment(comment.id)}
                                             className="text-xs text-gray-400 hover:text-red-500 transition-colors ml-auto opacity-0 group-hover:opacity-100"
@@ -313,23 +346,34 @@ export default function MarketplaceItemDetailModal({ item, onClose, onLikeToggle
                     </div>
 
                     {/* Owner Actions */}
-                    {currentUserId === item.user_id && item.status === 'available' && (
+                    {(currentUserId === item.user_id || isAdmin) && (
                         <div className="mt-8 pt-6 border-t border-gray-100 dark:border-gray-700">
                             <h3 className="text-sm font-bold text-gray-900 dark:text-white mb-4 uppercase tracking-wider">Owner Actions</h3>
                             <div className="flex gap-4">
+                                {item.status === 'available' && (
+                                    <>
+                                        <button
+                                            onClick={() => handleStatusUpdate('sold')}
+                                            className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-white font-bold rounded-lg transition-colors flex items-center justify-center gap-2"
+                                        >
+                                            <CheckCircle size={18} />
+                                            Mark as Sold
+                                        </button>
+                                        <button
+                                            onClick={() => handleStatusUpdate('given_away')}
+                                            className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-white font-bold rounded-lg transition-colors flex items-center justify-center gap-2"
+                                        >
+                                            <Gift size={18} />
+                                            Mark as Given Away
+                                        </button>
+                                    </>
+                                )}
                                 <button
-                                    onClick={() => handleStatusUpdate('sold')}
-                                    className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-white font-bold rounded-lg transition-colors flex items-center justify-center gap-2"
+                                    onClick={handleDeleteItem}
+                                    className="flex-1 py-3 bg-red-100 hover:bg-red-200 text-red-700 font-bold rounded-lg transition-colors flex items-center justify-center gap-2"
                                 >
-                                    <CheckCircle size={18} />
-                                    Mark as Sold
-                                </button>
-                                <button
-                                    onClick={() => handleStatusUpdate('given_away')}
-                                    className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-white font-bold rounded-lg transition-colors flex items-center justify-center gap-2"
-                                >
-                                    <Gift size={18} />
-                                    Mark as Given Away
+                                    <Trash2 size={18} />
+                                    Delete
                                 </button>
                             </div>
                         </div>

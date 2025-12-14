@@ -1,15 +1,17 @@
 import { useState, useEffect } from 'react';
 import { api, type Poll, type Comment } from '../lib/api';
-import { X, MessageCircle, Send, CheckCircle2 } from 'lucide-react';
+import { X, MessageCircle, Send, CheckCircle2, Trash2 } from 'lucide-react';
 
 interface PollDetailModalProps {
     pollId: string | null;
     onClose: () => void;
     currentUserId?: string;
     canComment?: boolean;
+    isAdmin?: boolean;
+    onDelete?: () => void;
 }
 
-export default function PollDetailModal({ pollId, onClose, currentUserId, canComment = true }: PollDetailModalProps) {
+export default function PollDetailModal({ pollId, onClose, currentUserId, canComment = true, isAdmin = false, onDelete }: PollDetailModalProps) {
     const [poll, setPoll] = useState<Poll | null>(null);
     const [comments, setComments] = useState<Comment[]>([]);
     const [newComment, setNewComment] = useState('');
@@ -104,12 +106,45 @@ export default function PollDetailModal({ pollId, onClose, currentUserId, canCom
         }
     };
 
+    const handleDeletePoll = async () => {
+        if (!pollId) return;
+        if (!confirm('Are you sure you want to delete this poll?')) return;
+
+        try {
+            await api.softDeletePoll(pollId);
+            if (onDelete) onDelete();
+            onClose();
+        } catch (error) {
+            console.error('Error deleting poll:', error);
+        }
+    };
+
+    const handleDeleteComment = async (commentId: string) => {
+        if (!confirm('Are you sure you want to delete this comment?')) return;
+
+        setComments(prev => prev.map(c => {
+            if (c.id !== commentId) return c;
+            return { ...c, deleted_at: new Date().toISOString() };
+        }));
+
+        try {
+            await api.softDeletePollComment(commentId);
+        } catch (error) {
+            console.error('Error deleting comment:', error);
+            fetchComments();
+        }
+    };
+
     // --- Render Helpers ---
     const rootComments = comments.filter(c => !c.parent_id);
     const getReplies = (parentId: string) => comments.filter(c => c.parent_id === parentId);
 
     const CommentItem = ({ comment, depth = 0 }: { comment: Comment, depth?: number }) => {
         const replies = getReplies(comment.id);
+        const isDeleted = !!comment.deleted_at;
+        const isAuthor = currentUserId === comment.user_id;
+        const canDelete = isAuthor || isAdmin;
+
         const renderContent = (content: string) => {
             const parts = content.split(/(@\w+)/g);
             return parts.map((part, i) => {
@@ -137,14 +172,31 @@ export default function PollDetailModal({ pollId, onClose, currentUserId, canCom
                                 {new Date(comment.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                             </span>
                         </div>
-                        <p className="text-sm text-gray-700 dark:text-gray-300">{renderContent(comment.content)}</p>
-                        {currentUserId && (
-                            <button
-                                onClick={() => setReplyTo(comment)}
-                                className="text-xs text-indigo-600 font-bold mt-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
-                                Reply
-                            </button>
+                        {isDeleted ? (
+                            <p className="text-sm text-gray-500 italic">deleted by user</p>
+                        ) : (
+                            <>
+                                <p className="text-sm text-gray-700 dark:text-gray-300">{renderContent(comment.content)}</p>
+                                <div className="flex items-center gap-3 mt-1">
+                                    {currentUserId && (
+                                        <button
+                                            onClick={() => setReplyTo(comment)}
+                                            className="text-xs text-indigo-600 font-bold opacity-0 group-hover:opacity-100 transition-opacity"
+                                        >
+                                            Reply
+                                        </button>
+                                    )}
+                                    {canDelete && (
+                                        <button
+                                            onClick={() => handleDeleteComment(comment.id)}
+                                            className="text-xs text-gray-400 hover:text-red-500 transition-colors ml-auto opacity-0 group-hover:opacity-100"
+                                            title="Delete Comment"
+                                        >
+                                            <Trash2 size={12} />
+                                        </button>
+                                    )}
+                                </div>
+                            </>
                         )}
                     </div>
                 </div>
@@ -171,9 +223,20 @@ export default function PollDetailModal({ pollId, onClose, currentUserId, canCom
                             <p className="text-sm text-gray-500">{poll.description}</p>
                         )}
                     </div>
-                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
-                        <X size={24} />
-                    </button>
+                    <div className="flex items-center gap-2">
+                        {poll && (currentUserId === poll.created_by || isAdmin) && (
+                            <button
+                                onClick={handleDeletePoll}
+                                className="text-gray-400 hover:text-red-500 transition-colors mr-2 p-2"
+                                title="Delete Poll"
+                            >
+                                <Trash2 size={20} />
+                            </button>
+                        )}
+                        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                            <X size={24} />
+                        </button>
+                    </div>
                 </div>
 
                 {/* Content */}
