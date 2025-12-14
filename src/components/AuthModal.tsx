@@ -17,7 +17,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [fullName, setFullName] = useState('');
-    const [buildingAddress, setBuildingAddress] = useState('Hillman'); // Default
+    const [buildingAddress, setBuildingAddress] = useState('East River'); // Default
     const [unitNumber, setUnitNumber] = useState('');
 
     if (!isOpen) return null;

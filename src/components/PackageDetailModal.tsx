@@ -134,7 +134,7 @@ export default function PackageDetailModal({ pkg, onClose, onResolve, currentUse
             try {
                 await navigator.share(shareData);
             } catch (err) {
-                console.log('Error sharing:', err);
+                console.error('Error sharing:', err);
             }
         } else {
             // Fallback to Facebook Sharer

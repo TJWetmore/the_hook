@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import DatePicker from 'react-datepicker';
+import "react-datepicker/dist/react-datepicker.css";
 import { supabase } from '../lib/supabaseClient';
 import { api } from '../lib/api';
 import { X, Loader2, Calendar, Upload, Image as ImageIcon } from 'lucide-react';
@@ -12,8 +14,8 @@ interface SubmitEventModalProps {
 export default function SubmitEventModal({ isOpen, onClose, onEventCreated }: SubmitEventModalProps) {
     const [eventName, setEventName] = useState('');
     const [hostOrg, setHostOrg] = useState('');
-    const [startTime, setStartTime] = useState('');
-    const [endTime, setEndTime] = useState('');
+    const [startTime, setStartTime] = useState<Date | null>(null);
+    const [endTime, setEndTime] = useState<Date | null>(null);
     const [location, setLocation] = useState('');
     const [description, setDescription] = useState('');
     const [imageFile, setImageFile] = useState<File | null>(null);
@@ -29,11 +31,13 @@ export default function SubmitEventModal({ isOpen, onClose, onEventCreated }: Su
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) throw new Error('Not authenticated');
 
+            if (!startTime || !endTime) throw new Error('Please select start and end times');
+
             const { error } = await api.createEvent({
                 event_name: eventName,
                 host_organization: hostOrg,
-                start_time: new Date(startTime).toISOString(),
-                end_time: new Date(endTime).toISOString(),
+                start_time: startTime.toISOString(),
+                end_time: endTime.toISOString(),
                 location,
                 description,
                 created_by: user.id
@@ -45,8 +49,8 @@ export default function SubmitEventModal({ isOpen, onClose, onEventCreated }: Su
             onClose();
             setEventName('');
             setHostOrg('');
-            setStartTime('');
-            setEndTime('');
+            setStartTime(null);
+            setEndTime(null);
             setLocation('');
             setDescription('');
             setImageFile(null);
@@ -84,36 +88,40 @@ export default function SubmitEventModal({ isOpen, onClose, onEventCreated }: Su
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Host Organization</label>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Host</label>
                         <input
                             type="text"
                             required
                             value={hostOrg}
                             onChange={(e) => setHostOrg(e.target.value)}
                             className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all"
-                            placeholder="e.g. East River House Committee"
+                            placeholder="e.g. East River Wine Coop"
                         />
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Start Time</label>
-                            <input
-                                type="datetime-local"
-                                required
-                                value={startTime}
-                                onChange={(e) => setStartTime(e.target.value)}
+                            <DatePicker
+                                selected={startTime}
+                                onChange={(date) => setStartTime(date)}
+                                showTimeSelect
+                                dateFormat="MM/dd/yyyy h:mm aa"
                                 className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all text-sm"
+                                placeholderText="Select start time"
+                                required
                             />
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">End Time</label>
-                            <input
-                                type="datetime-local"
-                                required
-                                value={endTime}
-                                onChange={(e) => setEndTime(e.target.value)}
+                            <DatePicker
+                                selected={endTime}
+                                onChange={(date) => setEndTime(date)}
+                                showTimeSelect
+                                dateFormat="MM/dd/yyyy h:mm aa"
                                 className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all text-sm"
+                                placeholderText="Select end time"
+                                required
                             />
                         </div>
                     </div>

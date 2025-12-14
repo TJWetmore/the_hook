@@ -72,7 +72,7 @@ export default function EventsView({ events, onRefresh, canInteract = true }: Ev
                                     <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
                                         {event.host_organization}
                                     </span>
-                                    {event.image_url && <span className="text-xl">🎨</span>}
+                                    {event.image_url && <span className="text-xl">🎉</span>}
                                 </div>
                                 <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">{event.event_name}</h3>
                                 <p className="text-gray-600 dark:text-gray-300 text-sm mb-3">{event.description}</p>

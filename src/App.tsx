@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from './lib/supabaseClient';
 import { api, type Profile, type Campaign, type ForumPost, type PackageReport, type UserActivity, type Poll, type Event, type MarketplaceItem } from './lib/api';
 import { formatDate } from './lib/utils';
-import { LayoutGrid, MessageSquare, Package, Calendar, Tag, LogOut, Search, Plus, User, BarChart2, ThumbsUp, RotateCw, ShoppingBag, ShieldAlert, Shield } from 'lucide-react';
+import { MessageSquare, Package, Calendar, Tag, LogOut, Search, Plus, User, BarChart2, ThumbsUp, RotateCw, ShoppingBag, ShieldAlert, Shield } from 'lucide-react';
 import AuthModal from './components/AuthModal';
 import EventsView from './components/EventsView';
 import PerksView from './components/PerksView';
@@ -304,9 +304,7 @@ function App() {
   );
 
   // Loading State
-  // We also show loading if user is logged in but profile hasn't loaded yet
-  // This prevents the "Flash of Content" where the app renders before we know if they are verified
-  if (!isAuthCheckComplete || (user && !profile)) {
+  if (!isAuthCheckComplete) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
@@ -324,12 +322,8 @@ function App() {
     );
   }
 
-  // Logged In BUT Not Verified -> Verification Pending
-  // (We assume if profile is null but user exists, we are still fetching or it's a fresh user, 
-  // but for safety we can show pending or a loader if profile is crucial. 
-  // Let's assume fetchProfile logic handles this, but since we set isAuthCheckComplete only after fetchProfile, 
-  // we check profile here.)
-  if (profile && !profile.is_verified) {
+  // Logged In BUT Not Verified (or Profile Missing) -> Verification Pending
+  if (!profile || !profile.is_verified) {
     return <VerificationPendingView
       onLogout={handleLogout}
       onRefresh={() => {
@@ -337,7 +331,7 @@ function App() {
         setIsAuthCheckComplete(false); // Reset check to trigger loading UI if desired, or just let setProfile(null) trigger the "user && !profile" loader
         if (user) fetchProfile(user.id);
       }}
-      userName={profile.user_name}
+      userName={profile?.user_name}
     />;
   }
 
@@ -776,7 +770,6 @@ function App() {
         <button onClick={() => setActiveTab('polls')} className={`p-2 rounded-lg ${activeTab === 'polls' ? 'text-green-600' : 'text-gray-400'}`}><BarChart2 size={24} /></button>
         <button onClick={() => setActiveTab('events')} className={`p-2 rounded-lg ${activeTab === 'events' ? 'text-green-600' : 'text-gray-400'}`}><Calendar size={24} /></button>
         <button onClick={() => setActiveTab('packages')} className={`p-2 rounded-lg ${activeTab === 'packages' ? 'text-green-600' : 'text-gray-400'}`}><Package size={24} /></button>
-        <button onClick={() => setActiveTab('dashboard')} className={`p-2 rounded-lg ${activeTab === 'dashboard' ? 'text-green-600' : 'text-gray-400'}`}><LayoutGrid size={24} /></button>
       </div>
 
       {user && <Watermark text={user.id} />}
