@@ -7,7 +7,7 @@ create table public.profiles (
   unit_number text,
   is_verified boolean default false, -- Manual gatekeeping toggle
   avatar_url text
-);
+);  
 
 -- 2. CAMPAIGNS (The Bulk Buy Board)
 create table public.campaigns (
@@ -194,6 +194,7 @@ create index if not exists idx_forum_comments_user_id on public.forum_comments(u
 create index if not exists idx_package_reports_user_id on public.package_reports(user_id);
 create index if not exists idx_package_comments_package_id on public.package_comments(package_id);
 create index if not exists idx_event_comments_event_id on public.event_comments(event_id);
+create index if not exists idx_events_created_by on public.events(created_by);
 create index if not exists idx_polls_created_by on public.polls(created_by);
 create index if not exists idx_poll_options_poll_id on public.poll_options(poll_id);
 create index if not exists idx_poll_votes_poll_id on public.poll_votes(poll_id);

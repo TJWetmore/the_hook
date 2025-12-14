@@ -17,7 +17,7 @@ export default function LandingPage({ onSignIn }: LandingPageProps) {
                 </h1>
 
                 <p className="text-lg text-gray-600 leading-relaxed">
-                    An independent community hub for the Corlears Hook Community. Connect with neighbors, discover local events, find lost packages, and get the best local deals.
+                    An independent community hub for the Corlears Hook Coops. Connect with neighbors, discover local events, find lost packages, and get the best local deals.
                 </p>
 
                 <div className="pt-4">
