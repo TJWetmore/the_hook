@@ -1,2 +1,5 @@
 User-agent: *
-Disallow: /
+Disallow:
+
+# Your application protects content via authentication (login).
+# Allowing bots here enables "Link Previews" on social media.
